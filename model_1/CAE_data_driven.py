@@ -20,6 +20,7 @@ class Signals(Dataset):
         y=self.Y[idx]
         return x,y
 
+#Hyperparameters initialization
 N_train=12000
 N_test=3000
 N_input=200
@@ -27,18 +28,15 @@ N_features=20
 N_hidden_layer=2
 
 SNR=30
-
+#Generation of the datasets
 b_min, b_max = 10.0, 2000.0 # s/mm^2
 b=torch.linspace(b_min,b_max,N_input)
-#b=(b-torch.min(b))/(torch.max(b)-torch.min(b))
 
 S0_min, S0_max = 0.5, 5.0
 S= S0_min + (S0_max - S0_min) * torch.rand(N_train,1)
-#S=(S-torch.min(S))/(torch.max(S)-torch.min(S))
 
 D_min, D_max  = 0.1e-3, 3.0e-3
 D=D_min + (D_max - D_min) * torch.rand(N_train,1)
-#D=(D-torch.min(D))/(torch.max(D)-torch.min(D))
 
 X=torch.zeros(N_train,N_input)
 for i in range(0,N_train):
@@ -51,11 +49,9 @@ training_data=Signals(X,X)
 
 S0_min, S0_max = 0.5, 5.0
 S= S0_min + (S0_max - S0_min) * torch.rand(N_test,1)
-#S=(S-torch.min(S))/(torch.max(S)-torch.min(S))
 
 D_min, D_max  = 0.1e-3, 3.0e-3
 D=D_min + (D_max - D_min) * torch.rand(N_test,1)
-#D=(D-torch.min(D))/(torch.max(D)-torch.min(D))
 
 X=torch.zeros(N_test,N_input)
 for i in range(0,N_test):
@@ -72,6 +68,7 @@ test_dataloader = DataLoader(testing_data, batch_size=64, shuffle=True)
 device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
 print(f"Using {device} device")
 
+#Class for the construction of the concrete selection layer
 class ConcreteLayer(nn.Module):
     def __init__(self, num_inputs, num_features, pi_dropout=0.0):
         super().__init__()
@@ -82,7 +79,7 @@ class ConcreteLayer(nn.Module):
         #Initialization
         logits_init=torch.rand(num_features,num_inputs)
         logits_init=logits_init/torch.sum(logits_init)
-        self.logits=nn.Parameter(logits_init, requires_grad=True) #Learnable for the model
+        self.logits=nn.Parameter(logits_init, requires_grad=True) #make logits learnable for the model
         self.pi_dropout=nn.Dropout(pi_dropout) #Desactivate inputs with pi=0.0, initialize Dropout layer
     
     def get_pi(self, ):
@@ -94,7 +91,7 @@ class ConcreteLayer(nn.Module):
     def sample_matrix(self, temperature, random, threshold, hard=False):
         pi, logits = self.get_pi()
 
-        reg=self.regularization(logits, threshold) #calculate regularization function
+        reg=self.regularization(logits, threshold) #Calculate the regularization function
 
         if not random:
             inds=torch.argmax(pi, dim=1) #Selection of the highest probability
@@ -102,11 +99,11 @@ class ConcreteLayer(nn.Module):
             pi_deterministic[torch.arange(pi.shape[0]),inds]=1 #Put 1 at the right places
             selector_matrix=pi_deterministic #Matrix with 1 at selected channels
         else:
-            selector_matrix=F.gumbel_softmax(logits, tau=temperature, hard=hard) #concrete distribution application
+            selector_matrix=F.gumbel_softmax(logits, tau=temperature, hard=hard) #Concrete distribution application
         
         return selector_matrix, reg
     
-    def regularization(self, logits, threshold):
+    def regularization(self, logits, threshold): # Regularization function (avoid multiple selection)
         num_inputs=self.num_inputs
         pi=F.softmax(logits, dim=1)
         L=torch.zeros(num_inputs)
@@ -121,16 +118,17 @@ class ConcreteLayer(nn.Module):
         outputs= {"latent": x, "reg": reg, "idx": torch.argmax(selector, dim=1)}
         return outputs
 
+# Class for the construction of the concrete auto-encoder = selection layer + decoder
 class CAE(nn.Module):
     def __init__(self, input_dim=N_input, features=N_features, n_hidden_layers=N_hidden_layer, dropout=0.0):
         super().__init__()
         indices2=np.arange(2+n_hidden_layers)
         data_indices2=np.array([indices2[0], indices2[-1]])
         data2=np.array([features,N_input])
-        layer_sizes=np.interp(indices2, data_indices2, data2).astype(int)
+        layer_sizes=np.interp(indices2, data_indices2, data2).astype(int)# 1D linear interpolation for hidden neurons
         n_layers=len(layer_sizes)
         layers=[]
-        for i in range(1, n_layers):
+        for i in range(1, n_layers): #Contruction of the hidden layers
             if i==n_layers-1:
                 layers.append(nn.Linear(layer_sizes[i-1],layer_sizes[i]))
             else: 
@@ -139,23 +137,16 @@ class CAE(nn.Module):
             
         print(layer_sizes,layers)
         self.encoder=ConcreteLayer(input_dim, features)
-        # self.decoder=nn.Sequential(
-        #     nn.Linear(features, 116),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(116, 158),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(158,input_dim)
-        # )
         self.decoder=nn.Sequential(*layers)
 
     def forward(self, x, temperature, random, threshold):
-        outputs=self.encoder(x, temperature, random, threshold)
+        outputs=self.encoder(x, random, temperature, threshold)
         x=self.decoder(outputs["latent"])
         reg=outputs["reg"]
         returns = {'X_rec': x, 'REG': reg, 'Idx': outputs["idx"]}
         return returns
 
-def temp_value(num_epochs, temp_base, temp_min, epoch):
+def temp_value(num_epochs, temp_base, temp_min, epoch): # Exponential decrease for the temperature
     temp=temp_base*(temp_min/temp_base)**(epoch/num_epochs)
     return temp
     
@@ -181,7 +172,7 @@ def train_loop(epoch, model, train_loader, optimizer):
         X, y = X.to(device), y.to(device)
         temp=temp_value(epochs, temp_base, temp_min, epoch)
         optimizer.zero_grad()
-        returns = model(X, True, temp, threshold)
+        returns = model(X, temp, True, threshold)
         reg=returns['REG']
         recon_batch=returns['X_rec']
         loss = loss_function(recon_batch, y)+strength*reg
@@ -202,7 +193,7 @@ def test_loop(epoch, dataloader, model, loss_fn,loss_threshold,indices):
         for X,y in dataloader:
             X, y = X.to(device), y.to(device)
             temp=temp_value(epochs, temp_base, temp_min, epoch)
-            returns = model(X, False, temp, threshold)
+            returns = model(X, temp, False, threshold)
             pred =returns['X_rec']
             idx = returns['Idx']
             y_m=y-y*0.1

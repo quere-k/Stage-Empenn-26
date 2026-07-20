@@ -221,19 +221,11 @@ class CAE(nn.Module):
             
         print(layer_sizes,layers)
         self.encoder=ConcreteLayer(input_dim, features)
-        # self.decoder=nn.Sequential(
-        #     nn.Linear(features, 50),
-        #     nn.ReLU(),
-        #     nn.Linear(50,24),
-        #     nn.ReLU(),
-        #     nn.Linear(24, 2),
-        #     nn.Softplus()
-        # )
         self.decoder=nn.Sequential(*layers)
         self.normalization=Normalization(input_dim, features)
 
     def forward(self, x, temperature, random, threshold):
-        outputs=self.encoder(x, temperature, random, threshold)
+        outputs=self.encoder(x, random, temperature, threshold)
         x=self.decoder(outputs["latent"])
         x=self.normalization(x)
         reg=outputs["reg"]
@@ -266,7 +258,7 @@ def train_loop(epoch, model, train_loader, optimizer):
         X, y = X.to(device), y.to(device)
         temp=temp_value(epochs, temp_base, temp_min, epoch)
         optimizer.zero_grad()
-        returns = model(X, True, temp, threshold)
+        returns = model(X, temp, True, threshold)
         reg=returns['REG']
         recon_batch=returns['Parameters']
         loss = loss_function(recon_batch, y)+strength*reg
@@ -288,7 +280,7 @@ def test_loop(epoch, dataloader, model, loss_fn, loss_threshold, indices):
         for X, y in dataloader:
             X, y = X.to(device), y.to(device)
             temp = temp_value(epochs, temp_base, temp_min, epoch)
-            returns = model(X, False, temp, threshold)
+            returns = model(X, temp, False, threshold)
             pred = returns['Parameters']
             idx = returns['Idx']
             test_loss += loss_fn(pred, y).item()
