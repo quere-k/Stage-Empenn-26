@@ -1,6 +1,6 @@
 import numpy as np 
 import matplotlib.pyplot as plt
-import scipy.optimize
+from scipy.optimize import least_squares
 import numpy as np 
 from qspace.sampling.sphere import jones
 from scipy.special import erf, erfi, lpmv, dawsn
@@ -9,15 +9,15 @@ import ast
 
 _GAMMA = 2.675987e8
 
-with open("./subset_permut_30_4.csv", newline="") as mon_fichier:
+with open("./subset_permut_30.csv", newline="") as mon_fichier:
     mon_fichier_reader = csv.reader(mon_fichier, delimiter=",")
     G = [[float(x) for x in row] for row in mon_fichier_reader]
 
 G=np.squeeze(G)
-nb_directions=30
+nb_directions=60
 directions=jones(nb_directions)
 G_dir=G*np.ones((nb_directions,1)) #T/m
-nb_subset=len(G)
+nb_subset=1 #len(G)
 
 with open("./param_2.csv", newline='') as f:
     reader = csv.reader(f)
@@ -35,8 +35,8 @@ ods = np.array(ods)
 iso=isos[idx]
 ic=ics[idx]
 od=ods[idx]
-kappa=1/np.tan((np.pi*od)/2)
 
+#AMICO
 class NODDIIntraCellular: #Compute the signal in the intra-cellular compartment
     def __init__(self,grad_dirs, G, delta, smalldel):
         self.grad_dirs=grad_dirs
@@ -44,8 +44,9 @@ class NODDIIntraCellular: #Compute the signal in the intra-cellular compartment
         self.delta=delta
         self.smalldel=smalldel
 
-    def get_signal(self, diff_par, kappa):
+    def get_signal(self, diff_par, od):
         diff_par *= 1e-6
+        kappa=1/np.tan((np.pi*od)/2)
         return self._synth_meas_watson_SH_cyl_neuman_PGSE(
             np.array([diff_par, 0, kappa]),
             self.grad_dirs,
@@ -302,9 +303,10 @@ class NODDIExtraCellular: #Compute the signal in the extra-cellular compartment
         self.delta=delta
         self.smalldel=smalldel
 
-    def get_signal(self, diff_par, kappa, vol_ic):
+    def get_signal(self, diff_par, od, vol_ic):
         diff_par *= 1e-6
         diff_perp = diff_par * (1 - vol_ic)
+        kappa=1/np.tan((np.pi*od)/2)
         return self._synth_meas_watson_hindered_diffusion_PGSE(
             np.array([diff_par, diff_perp, kappa]),
             self.grad_dirs,
@@ -382,82 +384,121 @@ class NODDIIsotropic: #Compute the signal in the CSF
         difftime = delta.transpose()-smalldel.transpose()/3.0
         return np.exp(-difftime*modQ_Sq*d)
 
-def signal(G_dir, vol_iso, vol_ic, kappa):
-    size=len(G_dir[0])
-    nb_directions=len(G_dir)
-    signals=np.zeros((size,1))
-    delta=37.8e-3
-    delta_dir=delta*np.ones((nb_directions,1)) #s
-    smalldel=17.5e-3
-    smalldel_dir=smalldel*np.ones((nb_directions,1)) #s
-    d_par=1.7e-3
-    d_iso=3.0e-3
-    for i in range(size):
-        G=G_dir[:,i]
-        ic=NODDIIntraCellular(directions, G, delta_dir, smalldel_dir)
-        signal_ic=ic.get_signal(d_par, kappa)
-        ec=NODDIExtraCellular(directions, G, delta_dir, smalldel_dir)
-        signal_ec=ec.get_signal(d_par, kappa, vol_ic)
-        iso=NODDIIsotropic(directions, G, delta_dir, smalldel_dir)
-        signal_iso=iso.get_signal(d_iso)
-        signal=(1-vol_iso)*(vol_ic*signal_ic+(1-vol_ic)*signal_ec)+vol_iso*signal_iso
-        signals[i]=signal[:,0]
-    return np.squeeze(signals)
+d_par=1.7e-3
+d_iso=3.0e-3
+delta=37.8e-3
+delta_dir=delta*np.ones((nb_directions,1)) #s
+smalldel=17.5e-3
+smalldel_dir=smalldel*np.ones((nb_directions,1)) #s
+ic_model=[]
+ec_model=[]
+iso_model=[]
+for j in range(nb_subset):
+    Gj=G_dir[:,j]
+    ic_model.append(NODDIIntraCellular(directions, Gj, delta_dir, smalldel_dir))
+    ec_model.append(NODDIExtraCellular(directions, Gj, delta_dir, smalldel_dir))
+    iso_model.append(NODDIIsotropic(directions, Gj, delta_dir, smalldel_dir))
+
+def noddi_signal(params, ic_model, ec_model, iso_model):
+    """
+    Compute NODDI signal for one voxel/subset
+    
+    params:
+        params[0] = vol_iso
+        params[1] = vol_ic
+        params[2] = od
+    """
+    vol_iso, vol_ic, od = params
+    signal_ic = ic_model.get_signal(d_par, od)
+    signal_ec = ec_model.get_signal(d_par, od, vol_ic)
+    signal_iso = iso_model.get_signal(d_iso)
+    S = (
+        (1 - vol_iso)
+        * (vol_ic * signal_ic + (1 - vol_ic) * signal_ec)
+        + vol_iso * signal_iso
+    )
+    return np.asarray(S).ravel()
+
+
+def residuals(params, measured_signal, ic_model, ec_model, iso_model):
+    """
+    Residual vector for least_squares
+    """
+    predicted = noddi_signal(
+        params,
+        ic_model,
+        ec_model,
+        iso_model
+    )
+    return predicted - measured_signal
 
 SNR=30
 
-mat = np.zeros((nb_param,nb_subset))
+mat = np.zeros((nb_param,nb_subset,nb_directions))
 for i in range(nb_param):
-    mat[i] = signal(G_dir,iso[i],ic[i],kappa[i])
+    for j in range(nb_subset):
+        mat[i][j] = noddi_signal((iso[i],ic[i],od[i]),ic_model[j], ec_model[j], iso_model[j])
 amplitude = np.mean(mat,axis=1)/SNR
-print(amplitude.shape)
-noise = np.random.normal(0, amplitude[:, None], (nb_param, nb_subset))
+noise = np.random.normal(0, amplitude[:, None], (nb_param, nb_subset, nb_directions))
 mat=mat+noise
 
-param_est=[]
-for i in range(nb_param):
-    p0 = (0.5,0.5,300)
-    params, cv = scipy.optimize.curve_fit(signal, G_dir, mat[i], p0)
-    param_est.append(params)
+estimated = np.zeros((nb_param, nb_subset, 3)) #(11,30,3) ou (11,60,3)
 
-param_est=np.array(param_est)
-print(param_est)
-print(iso,ic,kappa)
-error_iso=np.abs(param_est[:,0]-iso)/iso
-error_ic=np.abs(param_est[:,1]-ic)/ic
-error_od=np.abs(param_est[:,2]-kappa)/kappa
+for i in range(nb_param):
+    for j in range(nb_subset):
+        result = least_squares(
+            residuals,
+            x0=[0.1, 0.6, 0.5],
+            args=(
+                mat[i][j],
+                ic_model[j],
+                ec_model[j],
+                iso_model[j]
+            ),
+            bounds=([0,0,0.001], [1,1,0.99])
+        )
+        estimated[i][j] = result.x
+
+estimated=np.array(estimated) 
+vol_iso=np.mean(estimated[:,:,0],axis=1)
+vol_ic=np.mean(estimated[:,:,1],axis=1)
+od_est=np.mean(estimated[:,:,2],axis=1)
+error_iso=np.abs(vol_iso-iso)/iso
+error_ic=np.abs(vol_ic-ic)/ic
+error_od=np.abs(od_est-od)/od
 print(100*error_iso)
 print(100*error_ic)
 print(100*error_od)
 
-def b_value(G):
-    delta=37.8e-3
-    smalldel=17.5e-3
-    modQ = _GAMMA*smalldel*G
-    modQ_Sq = np.power(modQ,2)
-    difftime = delta-smalldel/3.0
-    return difftime*modQ_Sq/np.power(10,6)
+# def b_value(G):
+#     delta=37.8e-3
+#     smalldel=17.5e-3
+#     modQ = _GAMMA*smalldel*G
+#     modQ_Sq = np.power(modQ,2)
+#     difftime = delta-smalldel/3.0
+#     return difftime*modQ_Sq/np.power(10,6)
 
-b_subset=b_value(G)
+# b_subset=b_value(G)
+
+# signal_est = np.zeros((nb_param,nb_subset,nb_directions))
+# for i in range(nb_param):
+#     for j in range(nb_subset):
+#         signal_est[i][j] = noddi_signal((vol_iso[i],vol_ic[i],od_est[i]),ic_model[j], ec_model[j], iso_model[j])
 
 # fig, axs = plt.subplots(1, 2, figsize=(2.7, 5))
 # axs[0].plot(b_subset, mat[0,:], '.', label="data")
-# axs[0].plot(b_subset, signal(G_dir,param_est[0][0],param_est[0][1],param_est[0][2]), '--', label="fitted")
-# axs[0].set_title(f"Fitted dMRI Signal with parameters {iso[0]},{ic[0]},{od[0]}")
+# axs[0].plot(b_subset, signal_est[0,:], '--', label="fitted")
+# axs[0].set_title(f"Fitted dMRI Signal with parameters ({iso[0]},{ic[0]},{od[0]})")
 # axs[0].set_xlabel("b-values")
 # axs[0].set_xlim(0,2000)
 # axs[0].set_ylabel("MRI signal")
-# axs[0].legend()
 # axs[0].grid()
 
 # axs[1].plot(b_subset, mat[nb_param-1,:], '.', label="data")
-# axs[1].plot(b_subset, signal(G_dir,param_est[nb_param-1][0],param_est[nb_param-1][1],param_est[nb_param-1][2]), '--', label="fitted")
-# axs[1].set_title(f"Fitted dMRI Signal with parameters {iso[nb_param-1]},{ic[nb_param-1]},{od[nb_param-1]}")
+# axs[1].plot(b_subset, signal_est[nb_param-1,:], '--', label="fitted")
+# axs[1].set_title(f"Fitted dMRI Signal with parameters ({iso[nb_param-1]},{ic[nb_param-1]},{od[nb_param-1]})")
 # axs[1].set_xlabel("b-values")
 # axs[1].set_xlim(0,2000)
 # axs[1].set_ylabel("MRI signal")
-# axs[1].legend()
 # axs[1].grid()
 # plt.show()
-
-
