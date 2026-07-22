@@ -13,7 +13,7 @@ with open("./param_2.csv", newline='') as f:
 
 _GAMMA = 2.675987e8
 
-nb_directions=30
+nb_directions=60
 directions=jones(nb_directions)
 
 vf_iso=np.array(vf_iso)
@@ -21,7 +21,7 @@ vf_ic=np.array(vf_ic)
 od=np.array(od)
 
 G_min, G_max= 30e-3, 65e-3  #T/m
-G=np.linspace(G_min, G_max, 10)
+G=np.linspace(G_min, G_max, 20)
 G_dir=G*np.ones((nb_directions,1)) #T/m
 kappa=1/np.tan((np.pi*od)/2)
 
@@ -370,37 +370,52 @@ class NODDIIsotropic: #Compute the signal in the CSF
         difftime = delta.transpose()-smalldel.transpose()/3.0
         return np.exp(-difftime*modQ_Sq*d)
 
-def signal(G_dir, vol_iso, vol_ic, kappa, nb_directions):
-    size=len(G_dir[0])
-    signals=np.zeros((size,nb_directions))
-    delta=37.8e-3
-    delta_dir=delta*np.ones((nb_directions,1)) #s
-    smalldel=17.5e-3
-    smalldel_dir=smalldel*np.ones((nb_directions,1)) #s
-    d_par=1.7e-3
-    d_iso=3.0e-3
-    for i in range(size):
-        G=G_dir[:,i]
-        ic=NODDIIntraCellular(directions, G, delta_dir, smalldel_dir)
-        signal_ic=ic.get_signal(d_par, kappa)
-        ec=NODDIExtraCellular(directions, G, delta_dir, smalldel_dir)
-        signal_ec=ec.get_signal(d_par, kappa, vol_ic)
-        iso=NODDIIsotropic(directions, G, delta_dir, smalldel_dir)
-        signal_iso=iso.get_signal(d_iso)
-        signal=(1-vol_iso)*(vol_ic*signal_ic+(1-vol_ic)*signal_ec)+vol_iso*signal_iso
-        signals[i]=signal[:]
-    return signals.ravel()
+d_par=1.7e-3
+d_iso=3.0e-3
+delta=37.8e-3
+delta_dir=delta*np.ones((nb_directions,1)) #s
+smalldel=17.5e-3
+smalldel_dir=smalldel*np.ones((nb_directions,1)) #s
+ic_model=[]
+ec_model=[]
+iso_model=[]
+for j in range(20):
+    Gj=G_dir[:,j]
+    ic_model.append(NODDIIntraCellular(directions, Gj, delta_dir, smalldel_dir))
+    ec_model.append(NODDIExtraCellular(directions, Gj, delta_dir, smalldel_dir))
+    iso_model.append(NODDIIsotropic(directions, Gj, delta_dir, smalldel_dir))
+
+def signal(params, ic_model, ec_model, iso_model):
+    """
+    Compute NODDI signal for one voxel/subset
+    
+    params:
+        params[0] = vol_iso
+        params[1] = vol_ic
+        params[2] = od
+    """
+    vol_iso, vol_ic, od = params
+    signal_ic = ic_model.get_signal(d_par, od)
+    signal_ec = ec_model.get_signal(d_par, od, vol_ic)
+    signal_iso = iso_model.get_signal(d_iso)
+    S = (
+        (1 - vol_iso)
+        * (vol_ic * signal_ic + (1 - vol_ic) * signal_ec)
+        + vol_iso * signal_iso
+    )
+    return np.asarray(S).transpose(0,1)
 
 N=len(od)
-mat = np.zeros((10*nb_directions,N))
+mat = np.zeros((20,N,nb_directions))
 for i in range(N):
-    mat[:,i] = signal(G_dir,vf_iso[i],vf_ic[i],kappa[i],nb_directions)
+    for j in range(20):
+        mat[j][i] = signal((vf_iso[i],vf_ic[i],kappa[i]), ic_model[j], ec_model[j], iso_model[j])
 
 def distance(mat):
-    size, N = len(mat), len(mat[0])
+    size, N, nb_dir = len(mat), len(mat[0]), len(mat[0][0])
     distance_matrices = []
     for k in range(size):
-        distance = np.zeros((N, N))
+        distance = np.zeros((N, N, nb_dir))
         for i in range(N):
             for j in range(N):
                 if j > i:
@@ -410,15 +425,16 @@ def distance(mat):
     return distance_matrix
 
 def score(distance_matrix, SNR):
-    size, N = len(distance_matrix), len(distance_matrix[0])
+    size, N, nb_dir= len(distance_matrix), len(distance_matrix[0]), len(distance_matrix[0][0][0])
     score_mat = np.array([])
     for k in range(size):
         score = 0
         for i in range(N):
             for j in range(N):
                 if j>i:
-                    if distance_matrix[k][i][j]>=(1/SNR):
-                        score+=1
+                    for l in range(nb_dir):
+                        if distance_matrix[k][i][j][l]>=(1/SNR):
+                            score+=1
         score_mat=np.append(score_mat, score)
     return score_mat
 
@@ -431,7 +447,7 @@ def permutation(distance_matrix, nb_b, nb_rep):
     SNR = 25
     for i in range(nb_rep):
         print(f"\trepetition number {i+1}")
-        subset =  np.random.randint(0,200,nb_b)
+        subset = np.random.choice(20, nb_b, replace=False)
         selection = distance_matrix[subset]
         score_mat = np.array([])
         changed = True
@@ -447,7 +463,7 @@ def permutation(distance_matrix, nb_b, nb_rep):
                 new_selection[np.argmin(score_mat)] = distance_matrix[next_best_b]
                 new_score = score(new_selection,SNR)
                 nb_next_best = np.sum(new_score)
-                if nb_weakest<nb_next_best:
+                if nb_weakest<nb_next_best and next_best_b not in subset:
                     selection = new_selection
                     subset[np.argmin(score_mat)]=next_best_b
                 else:
@@ -458,8 +474,9 @@ def permutation(distance_matrix, nb_b, nb_rep):
             best_subset_seen = subset.copy()
     return best_subset_seen,best_nb_d
 
-best_subset,best_nb=permutation(distance_matrix, 4, 6)
-best_subset=(best_subset/nb_directions).astype(int)
+nb_G=1
+best_subset,best_nb=permutation(distance_matrix, nb_G, 6)
+
 best_G=G[best_subset]
 
 def b_value(G):
@@ -471,8 +488,9 @@ def b_value(G):
     return difftime*modQ_Sq/np.power(10,6)
 
 b_val=b_value(best_G)
+print(b_val)
 
-chemin = "./subset_permut_30_4.csv"
+chemin = f"./subset_permut_{nb_directions}_{nb_G}.csv"
 
 with open(chemin, mode='w') as mon_fichier:
     mon_fichier_ecrire = csv.writer(mon_fichier, delimiter=',',
@@ -481,4 +499,4 @@ with open(chemin, mode='w') as mon_fichier:
 
     mon_fichier_ecrire.writerow(best_G)
 
-#print(best_subset, best_nb, best_G, b_val)
+#print(best_subset, best_nb)

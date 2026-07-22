@@ -9,15 +9,15 @@ import ast
 
 _GAMMA = 2.675987e8
 
-with open("./subset_permut_30.csv", newline="") as mon_fichier:
+with open("./subset_permut_60_1.csv", newline="") as mon_fichier:
     mon_fichier_reader = csv.reader(mon_fichier, delimiter=",")
     G = [[float(x) for x in row] for row in mon_fichier_reader]
 
 G=np.squeeze(G)
-nb_directions=60
+nb_directions=30
 directions=jones(nb_directions)
 G_dir=G*np.ones((nb_directions,1)) #T/m
-nb_subset=1 #len(G)
+nb_subset=G.size
 
 with open("./param_2.csv", newline='') as f:
     reader = csv.reader(f)
@@ -36,7 +36,6 @@ iso=isos[idx]
 ic=ics[idx]
 od=ods[idx]
 
-#AMICO
 class NODDIIntraCellular: #Compute the signal in the intra-cellular compartment
     def __init__(self,grad_dirs, G, delta, smalldel):
         self.grad_dirs=grad_dirs
@@ -470,35 +469,4 @@ print(100*error_iso)
 print(100*error_ic)
 print(100*error_od)
 
-# def b_value(G):
-#     delta=37.8e-3
-#     smalldel=17.5e-3
-#     modQ = _GAMMA*smalldel*G
-#     modQ_Sq = np.power(modQ,2)
-#     difftime = delta-smalldel/3.0
-#     return difftime*modQ_Sq/np.power(10,6)
 
-# b_subset=b_value(G)
-
-# signal_est = np.zeros((nb_param,nb_subset,nb_directions))
-# for i in range(nb_param):
-#     for j in range(nb_subset):
-#         signal_est[i][j] = noddi_signal((vol_iso[i],vol_ic[i],od_est[i]),ic_model[j], ec_model[j], iso_model[j])
-
-# fig, axs = plt.subplots(1, 2, figsize=(2.7, 5))
-# axs[0].plot(b_subset, mat[0,:], '.', label="data")
-# axs[0].plot(b_subset, signal_est[0,:], '--', label="fitted")
-# axs[0].set_title(f"Fitted dMRI Signal with parameters ({iso[0]},{ic[0]},{od[0]})")
-# axs[0].set_xlabel("b-values")
-# axs[0].set_xlim(0,2000)
-# axs[0].set_ylabel("MRI signal")
-# axs[0].grid()
-
-# axs[1].plot(b_subset, mat[nb_param-1,:], '.', label="data")
-# axs[1].plot(b_subset, signal_est[nb_param-1,:], '--', label="fitted")
-# axs[1].set_title(f"Fitted dMRI Signal with parameters ({iso[nb_param-1]},{ic[nb_param-1]},{od[nb_param-1]})")
-# axs[1].set_xlabel("b-values")
-# axs[1].set_xlim(0,2000)
-# axs[1].set_ylabel("MRI signal")
-# axs[1].grid()
-# plt.show()
