@@ -9,7 +9,7 @@ import ast
 
 _GAMMA = 2.675987e8
 
-with open("./subset_permut_60_1.csv", newline="") as mon_fichier:
+with open("./subset_data_30_1.csv", newline="") as mon_fichier:
     mon_fichier_reader = csv.reader(mon_fichier, delimiter=",")
     G = [[float(x) for x in row] for row in mon_fichier_reader]
 
