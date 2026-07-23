@@ -504,9 +504,9 @@ class ConcreteLayer(nn.Module):
     def regularization(self, logits, threshold):
         num_inputs=self.num_inputs
         pi=F.softmax(logits, dim=1)
-        L=torch.zeros(num_inputs)
+        L=torch.zeros(num_inputs, device=device)
         for i in range(num_inputs):
-            L[i]=F.relu(torch.sum(pi[:,i]-threshold))
+            L[i]=F.relu(torch.sum(pi[:,i])-threshold)
         reg=torch.sum(L)
         return reg
 
@@ -517,79 +517,6 @@ class ConcreteLayer(nn.Module):
         x=F.linear(x,selector)
         outputs= {"latent": x, "reg": reg, "idx": torch.argmax(selector, dim=1)}
         return outputs
-
-
-# class Normalization(nn.Module):
-#     def __init__(self,input_dim, features, output_dim=3):
-#         super().__init__()
-#         self.nparam = output_dim # Number of parameters
-#         normlist = []
-#         for pp in range(output_dim):
-#             normlist.append(nn.Linear(1,1, bias=False))
-#         self.sgmnorm = nn.ModuleList(normlist)
-#         self.param_min = torch.tensor([0, 0, 0], device=device)
-#         self.param_max = torch.tensor([1, 1, 1], device=device)
-#         self.param_name = ['vf_iso', 'vf_ic', 'od']
-#         self.con_one=torch.tensor([1.0], device=device)
-#         self.con_two=torch.tensor([2.0], device=device)
-    
-#     def getnorm(self,x):
-#         if x.dim()==1:
-#             normt = torch.zeros(self.nparam, device=device)
-#             for pp in range(self.nparam):
-#                 bt = torch.zeros(self.nparam, device=device)
-#                 bt[pp]=1.0
-#                 con_one = torch.tensor([1.0])
-#                 bt = self.sgmnorm[pp](con_one)*bt
-#                 normt = normt + bt
-#             normt = torch.abs(normt)
-#             x=x*normt
-#         elif x.dim()==2:
-#             normt = torch.zeros(x.shape[0],self.nparam, device=device)
-#             for pp in range(self.nparam):
-#                 bt = torch.zeros(x.shape[0],self.nparam, device=device)
-#                 bt[:,pp] = 1.0
-#                 bt = self.sgmnorm[pp](self.con_one).detach().clone() * bt
-#                 normt = normt + bt
-#             normt = torch.abs(normt)
-#             x = x*normt
-#         elif x.dim() == 3:
-#             normt = torch.zeros(x.shape[0], x.shape[1], self.nparam, device=device)
-#             for pp in range(self.nparam):
-#                 bt = torch.zeros(x.shape[0], x.shape[1], self.nparam, device=device)
-#                 bt[:, :, pp] = 1.0
-#                 bt = self.sgmnorm[pp](self.con_one).detach().clone() * bt
-#                 normt = normt + bt
-#                 normt = torch.abs(normt)
-#                 x = x * normt
-#         else:
-#             raise RuntimeError('getnorm() only accepts 1D or 2D inputs')
-            
-#         return x
-    
-#     def getparams(self,x):
-#         x = torch.log(x)
-#         x = x - torch.log(torch.log(self.con_two))
-#         x = self.getnorm(x)
-#         x = torch.sigmoid(x)
-#         if x.dim()==1:
-#             x = (self.param_max - self.param_min)*x + self.param_min
-                
-#         elif x.dim()==2:
-#             t_ones = torch.ones(x.shape[0],1, device=device)
-#             max_val = torch.cat( ( self.param_max[0]*t_ones , self.param_max[1]*t_ones, self.param_max[2]*t_ones), 1  )
-#             min_val = torch.cat( ( self.param_min[0]*t_ones , self.param_min[1]*t_ones, self.param_min[2]*t_ones), 1   )
-#             x = (max_val - min_val)*x + min_val
-#         elif x.dim() == 3:
-#             t_ones = torch.ones(x.shape[0], x.shape[1], 1, device=device)
-#             max_val = torch.cat((self.param_max[0] * t_ones, self.param_max[1] * t_ones, self.param_max[2] * t_ones),dim=2)
-#             min_val = torch.cat((self.param_min[0] * t_ones, self.param_min[1] * t_ones, self.param_min[2] * t_ones),dim=2)
-#             x = (max_val - min_val) * x + min_val
-#         return x
-
-#     def forward(self, x):
-#         param=self.getparams(x)
-#         return param
 
 class CAE(nn.Module):
     def __init__(self, input_dim=N_input, features=N_features, n_hidden_layers=N_hidden_layer, dropout=0.0):
@@ -608,15 +535,13 @@ class CAE(nn.Module):
                 layers.append(nn.Linear(layer_sizes[i-1],layer_sizes[i]))
                 layers.append(nn.ReLU(True))
             
-        print(layer_sizes,layers)
+        #print(layer_sizes,layers)
         self.encoder=ConcreteLayer(input_dim, features)
         self.decoder=nn.Sequential(*layers)
-        #self.normalization=Normalization(input_dim, features)
 
     def forward(self, x, random, temperature, threshold):
         outputs=self.encoder(x, random, temperature, threshold)
         x=self.decoder(outputs["latent"])
-        #x=self.normalization(x)
         x=x.transpose(1, 2)
         reg=outputs["reg"]
         returns = {'Parameters': x, 'REG': reg, 'Idx': outputs["idx"]}
@@ -634,7 +559,7 @@ epochs = 50
 
 temp_base=10
 temp_min=0.1
-threshold=1
+threshold=1 #0.08 for 4 neurons
 strength=0.1
 
 loss_function = nn.MSELoss()
@@ -688,6 +613,12 @@ def test_loop(epoch, dataloader, model, loss_fn, loss_threshold,indices):
     iso_mean_ae = torch.mean(sum(iso_absolute_errors) / len(iso_absolute_errors))
     ic_mean_ae = torch.mean(sum(ic_absolute_errors) / len(ic_absolute_errors))
     od_mean_ae = torch.mean(sum(od_absolute_errors) / len(od_absolute_errors))
+    iso_max_ae = torch.cat(iso_absolute_errors).max()
+    ic_max_ae = torch.cat(ic_absolute_errors).max()
+    od_max_ae = torch.cat(od_absolute_errors).max()
+    iso_min_ae = torch.cat(iso_absolute_errors).min()
+    ic_min_ae = torch.cat(ic_absolute_errors).min()
+    od_min_ae = torch.cat(od_absolute_errors).min()
     if test_loss<loss_threshold:
         indices=idx.tolist().copy()
         loss_threshold=test_loss
@@ -695,9 +626,9 @@ def test_loop(epoch, dataloader, model, loss_fn, loss_threshold,indices):
         print(
             f"Test Error: \n"
             f"Avg loss: {test_loss:>8f} \n"
-            f"vf_iso Absolute Error - Mean: {iso_mean_ae}\n"
-            f"vf_ic Absolute Error - Mean: {ic_mean_ae}\n"
-            f"OD Absolute Error - Mean: {od_mean_ae}\n"
+            f"vf_iso Absolute Error - Mean: {iso_mean_ae} - Min: {iso_min_ae} - Max: {iso_max_ae}\n"
+            f"vf_ic Absolute Error - Mean: {ic_mean_ae} - Min: {ic_min_ae} - Max: {ic_max_ae}\n"
+            f"OD Absolute Error - Mean: {od_mean_ae} - Min: {od_min_ae} - Max: {od_max_ae}\n"
         )
     return indices, loss_threshold
 
@@ -708,26 +639,25 @@ for epoch in range(1, epochs + 1):
     train_loop(epoch, model, train_dataloader, optimizer)
     indices, loss_threshold = test_loop(epoch, test_dataloader, model, loss_function,loss_threshold,indices)
 
-# indices=np.array(indices)
+indices=np.array(indices)
+best_G=G[indices]
 
-# indices=(indices/nb_directions).astype(int)
-# best_G=G[indices]
+def b_value(G):
+    delta=37.8e-3
+    smalldel=17.5e-3
+    modQ = _GAMMA*smalldel*G
+    modQ_Sq = np.power(modQ,2)
+    difftime = delta-smalldel/3.0
+    return difftime*modQ_Sq/np.power(10,6)
 
-# def b_value(G):
-#     delta=37.8e-3
-#     smalldel=17.5e-3
-#     modQ = _GAMMA*smalldel*G
-#     modQ_Sq = np.power(modQ,2)
-#     difftime = delta-smalldel/3.0
-#     return difftime*modQ_Sq/np.power(10,6)
+b_val=b_value(best_G)
 
-# b_val=b_value(best_G)
+chemin = f"./subset_param_{nb_directions}_{N_features}.csv"
 
-# chemin = "./subsets_param_2.csv"
+with open(chemin, mode='w') as mon_fichier:
+    mon_fichier_ecrire = csv.writer(mon_fichier, delimiter=',',
+                                    quotechar='"',
+                                    quoting=csv.QUOTE_MINIMAL)
 
-# with open(chemin, mode='w') as mon_fichier:
-#     mon_fichier_ecrire = csv.writer(mon_fichier, delimiter=',',
-#                                     quotechar='"',
-#                                     quoting=csv.QUOTE_MINIMAL)
-
-#     mon_fichier_ecrire.writerow(b_val)
+    mon_fichier_ecrire.writerow(best_G)
+print(b_val)

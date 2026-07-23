@@ -483,9 +483,9 @@ class ConcreteLayer(nn.Module):
     def regularization(self, logits, threshold):
         num_inputs=self.num_inputs
         pi=F.softmax(logits, dim=1)
-        L=torch.zeros(num_inputs)
+        L=torch.zeros(num_inputs, device=device)
         for i in range(num_inputs):
-            L[i]=F.relu(torch.sum(pi[:,i]-threshold))
+            L[i]=F.relu(torch.sum(pi[:,i])-threshold)
         reg=torch.sum(L)
         return reg
 
@@ -513,7 +513,7 @@ class CAE(nn.Module):
                 layers.append(nn.Linear(layer_sizes[i-1],layer_sizes[i]))
                 layers.append(nn.LeakyReLU(True))
             
-        print(layer_sizes,layers)
+        #print(layer_sizes,layers)
         self.encoder=ConcreteLayer(input_dim, features)
         self.decoder=nn.Sequential(*layers)
 
@@ -537,7 +537,7 @@ epochs = 50
 
 temp_base=10
 temp_min=0.1
-threshold=1
+threshold=1 #0.05 for 4 neurons
 strength=0.1
 
 loss_function = nn.MSELoss()
@@ -583,25 +583,16 @@ def test_loop(epoch, dataloader, model, loss_fn, loss_threshold, indices):
     test_loss/=num_batches
     mean_ae = sum(absolute_errors) / len(absolute_errors)
     mean_ae = torch.mean(mean_ae)
-    # max_ae = max(absolute_errors)
-    # min_ae = min(absolute_errors)
+    max_ae = torch.cat(absolute_errors).max()
+    min_ae = torch.cat(absolute_errors).min()
     if test_loss<loss_threshold:
         indices=idx.tolist().copy()
         loss_threshold=test_loss
     if epoch%5==0:
-        # plt.figure()
-        # plt.plot(b, y[0], 'r-', label='Expectation')
-        # plt.plot(b, X[0], 'bo', label='Prediction')
-        # plt.title(f"vf_ic={vf_ic[0]}, vf_iso={vf_iso[0]}, OD={OD[0]}")
-        # plt.ylabel('Signal')
-        # plt.xlabel('b values')
-        # plt.legend()
-        # plt.grid()
-        # plt.show()
         print(
                 f"Test Error: \n"
                 f"Avg loss: {test_loss:>8f} \n"
-                f"Absolute Error - Mean: {mean_ae}"
+                f"Absolute Error - Mean: {mean_ae} - Min: {min_ae} - Max: {max_ae}"
             )
     return indices, loss_threshold
 
@@ -613,21 +604,19 @@ for epoch in range(1, epochs + 1):
     indices, loss_threshold = test_loop(epoch, test_dataloader, model, loss_function,loss_threshold,indices)
 
 indices=np.array(indices)
-
-indices=(indices/nb_directions).astype(int)
 best_G=G[indices]
 
-# def b_value(G):
-#     delta=37.8e-3
-#     smalldel=17.5e-3
-#     modQ = _GAMMA*smalldel*G
-#     modQ_Sq = np.power(modQ,2)
-#     difftime = delta-smalldel/3.0
-#     return difftime*modQ_Sq/np.power(10,6)
+def b_value(G):
+    delta=37.8e-3
+    smalldel=17.5e-3
+    modQ = _GAMMA*smalldel*G
+    modQ_Sq = np.power(modQ,2)
+    difftime = delta-smalldel/3.0
+    return difftime*modQ_Sq/np.power(10,6)
 
-# b_val=b_value(best_G)
+b_val=b_value(best_G)
 
-chemin = "./subset_data_2.csv"
+chemin = f"./subset_data_{nb_directions}_{N_features}.csv"
 
 with open(chemin, mode='w') as mon_fichier:
     mon_fichier_ecrire = csv.writer(mon_fichier, delimiter=',',
@@ -635,3 +624,4 @@ with open(chemin, mode='w') as mon_fichier:
                                     quoting=csv.QUOTE_MINIMAL)
 
     mon_fichier_ecrire.writerow(best_G)
+print(b_val)
