@@ -474,7 +474,7 @@ def permutation(distance_matrix, nb_b, nb_rep):
             best_subset_seen = subset.copy()
     return best_subset_seen,best_nb_d
 
-nb_G=1
+nb_G=4
 best_subset,best_nb=permutation(distance_matrix, nb_G, 6)
 
 best_G=G[best_subset]
