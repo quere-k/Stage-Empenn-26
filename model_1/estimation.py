@@ -3,12 +3,12 @@ import matplotlib.pyplot as plt
 import scipy.optimize
 import csv
 
-with open("./subset_eq.csv", newline="") as mon_fichier:
+with open("./subset.csv", newline="") as mon_fichier:
     mon_fichier_reader = csv.reader(mon_fichier, delimiter=",")
     donnees = [[int(x) for x in row] for row in mon_fichier_reader]
 
 nb_b=200
-nb_D=11
+nb_D=80
 SNR=30
 
 b_min, b_max = 10.0, 2000.0 #s/mm^2
@@ -39,18 +39,50 @@ for i in range(nb_D):
     params, cv = scipy.optimize.curve_fit(monoExp, b_subset, mat[:,i], p0)
     D_est=np.append(D_est,params)
 
-print(D_est,D)
+#print(D_est,D)
 
 error=np.abs(D_est-D)/D
-print(100*error)
+mean=np.mean(error)
+std=np.std(error)
+label=['D']
 
-plt.plot(b_subset, mat[:,0], '.', label="data")
-plt.plot(b_subset, monoExp(b_subset,D_est[0]), '--', label="fitted")
-plt.title("Fitted dMRI Signal")
-plt.xlabel("b-values")
-plt.xlim(0,2000)
-plt.ylabel("MRI signal")
-plt.grid()
+
+fig, ax = plt.subplots(figsize=(5, 6))
+
+# Mean ± std
+ax.bar(
+    0, mean,
+    yerr=std,
+    capsize=6,
+    width=0.5,
+    color="lightsteelblue",
+    edgecolor="black",
+    alpha=0.8,
+    label="Mean ± SD"
+)
+
+# Individual errors
+x = np.random.normal(0, 0.04, len(error))  # horizontal jitter
+ax.scatter(
+    x,
+    error,
+    color="crimson",
+    s=35,
+    alpha=0.7,
+    edgecolors="black",
+    linewidth=0.3,
+    label="Individual estimates"
+)
+
+ax.set_xticks([0])
+ax.set_xticklabels(["D"])
+ax.set_ylabel("Relative error")
+ax.set_xlabel("Parameter")
+ax.set_title("Relative error of the estimated diffusion coefficient\n(n = 80)")
+ax.grid(axis="y", linestyle="--", alpha=0.5)
+ax.legend(frameon=False)
+
+plt.tight_layout()
 plt.show()
 
 
