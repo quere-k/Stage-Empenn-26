@@ -31,7 +31,7 @@ N_hidden_layer=2
 
 SNR=30
 
-nb_directions=30
+nb_directions=60
 directions=jones(nb_directions)
 
 G_min, G_max= 30e-3, 65e-3  #T/m
@@ -535,13 +535,15 @@ class CAE(nn.Module):
                 layers.append(nn.Linear(layer_sizes[i-1],layer_sizes[i]))
                 layers.append(nn.ReLU(True))
             
-        #print(layer_sizes,layers)
+        print(layer_sizes,layers)
         self.encoder=ConcreteLayer(input_dim, features)
         self.decoder=nn.Sequential(*layers)
+        #self.normalization=Normalization(input_dim, features)
 
     def forward(self, x, random, temperature, threshold):
         outputs=self.encoder(x, random, temperature, threshold)
         x=self.decoder(outputs["latent"])
+        #x=self.normalization(x)
         x=x.transpose(1, 2)
         reg=outputs["reg"]
         returns = {'Parameters': x, 'REG': reg, 'Idx': outputs["idx"]}
@@ -582,6 +584,7 @@ def train_loop(epoch, model, train_loader, optimizer):
         optimizer.step()
     sum_loss/=num_batches
     if epoch%5 ==0:
+        print(loss_function(recon_batch, y).item(), reg.item())
         print(f"Epoch {epoch}, Average Loss: {sum_loss:.6f}")
 
 def test_loop(epoch, dataloader, model, loss_fn, loss_threshold,indices):
@@ -640,17 +643,8 @@ for epoch in range(1, epochs + 1):
     indices, loss_threshold = test_loop(epoch, test_dataloader, model, loss_function,loss_threshold,indices)
 
 indices=np.array(indices)
+
 best_G=G[indices]
-
-def b_value(G):
-    delta=37.8e-3
-    smalldel=17.5e-3
-    modQ = _GAMMA*smalldel*G
-    modQ_Sq = np.power(modQ,2)
-    difftime = delta-smalldel/3.0
-    return difftime*modQ_Sq/np.power(10,6)
-
-b_val=b_value(best_G)
 
 chemin = f"./subset_param_{nb_directions}_{N_features}.csv"
 
@@ -660,4 +654,3 @@ with open(chemin, mode='w') as mon_fichier:
                                     quoting=csv.QUOTE_MINIMAL)
 
     mon_fichier_ecrire.writerow(best_G)
-print(b_val)

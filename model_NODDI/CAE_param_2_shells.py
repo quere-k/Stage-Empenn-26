@@ -5,10 +5,8 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from qspace.sampling.sphere import jones
 from scipy.special import erf, erfi, lpmv, dawsn
-import csv
 import numpy as np
-import math as m
-import matplotlib.pyplot as plt
+import csv
 
 _GAMMA = 2.675987e8
 
@@ -25,27 +23,32 @@ class Signals(Dataset):
         y=self.Y[idx]
         return x,y
 
-N_train=3000
-N_test=1000
-N_input=20
-N_features=4
+N_train=3072
+N_test=960
+N_input=10
+N_features=1
 N_hidden_layer=2
+
+dir_shell_1=30
+dir_shell_2=60
 
 SNR=30
 
-nb_directions=30
-directions=jones(nb_directions)
-
 G_min, G_max= 30e-3, 65e-3  #T/m
 G=np.linspace(G_min, G_max, N_input)
-G_dir=G*np.ones((nb_directions,1)) #T/m
+
+directions_shell_1=jones(dir_shell_1)
+G_dir_1=G*np.ones((dir_shell_1,1)) #T/m
+
+directions_shell_2=jones(dir_shell_2)
+G_dir_2=G*np.ones((dir_shell_2,1)) #T/m
 
 vol_iso = np.random.rand(1, N_train).reshape(N_train, 1)
 vol_ic = np.random.rand(1, N_train).reshape(N_train, 1)
-kappa_min, kappa_max = 1e-3, 600
-OD = np.random.rand(1,N_train).reshape(N_train,1)
-kappa = kappa_min + (kappa_max-kappa_min)*OD
+od_min, od_max=0.001, 0.99
+od = od_min + (od_max-od_min)*np.random.rand(1,N_train).reshape(N_train,1)
 
+#Adaptation from AMICO
 class NODDIIntraCellular: #Compute the signal in the intra-cellular compartment
     def __init__(self,grad_dirs, G, delta, smalldel):
         self.grad_dirs=grad_dirs
@@ -53,10 +56,11 @@ class NODDIIntraCellular: #Compute the signal in the intra-cellular compartment
         self.delta=delta
         self.smalldel=smalldel
 
-    def get_signal(self, diff_par, kappa):
+    def get_signal(self, diff_par, od):
+        kappa = 1/np.tan((np.pi*od)/2)
         diff_par *= 1e-6
         return self._synth_meas_watson_SH_cyl_neuman_PGSE(
-            np.array([diff_par, 0, kappa]),
+            np.array([diff_par, 0, kappa.item()]),
             self.grad_dirs,
             np.squeeze(self.G),
             np.squeeze(self.delta),
@@ -311,11 +315,12 @@ class NODDIExtraCellular: #Compute the signal in the extra-cellular compartment
         self.delta=delta
         self.smalldel=smalldel
 
-    def get_signal(self, diff_par, kappa, vol_ic):
+    def get_signal(self, diff_par, od, vol_ic):
+        kappa = 1/np.tan((np.pi*od)/2)
         diff_par *= 1e-6
         diff_perp = diff_par * (1 - vol_ic)
         return self._synth_meas_watson_hindered_diffusion_PGSE(
-            np.array([diff_par, diff_perp, kappa]),
+            np.array([diff_par, diff_perp.item(), kappa.item()]),
             self.grad_dirs,
             np.squeeze(self.G),
             np.squeeze(self.delta),
@@ -391,54 +396,155 @@ class NODDIIsotropic: #Compute the signal in the CSF
         difftime = delta.transpose()-smalldel.transpose()/3.0
         return np.exp(-difftime*modQ_Sq*d)
 
-def signal(G_dir, vol_iso, vol_ic, kappa, nb_directions):
-    size=len(G_dir[0])
-    signals=np.zeros((size,nb_directions))
-    delta=37.8e-3
-    delta_dir=delta*np.ones((nb_directions,1)) #s
-    smalldel=17.5e-3
-    smalldel_dir=smalldel*np.ones((nb_directions,1)) #s
-    d_par=1.7e-3
-    d_iso=3.0e-3
-    for i in range(size):
-        G=G_dir[:,i]
-        ic=NODDIIntraCellular(directions, G, delta_dir, smalldel_dir)
-        signal_ic=ic.get_signal(d_par, kappa)
-        ec=NODDIExtraCellular(directions, G, delta_dir, smalldel_dir)
-        signal_ec=ec.get_signal(d_par, kappa, vol_ic)
-        iso=NODDIIsotropic(directions, G, delta_dir, smalldel_dir)
-        signal_iso=iso.get_signal(d_iso)
-        signal=(1-vol_iso)*(vol_ic*signal_ic+(1-vol_ic)*signal_ec)+vol_iso*signal_iso
-        signals[i]=signal[:]
-    return signals
+d_par=1.7e-3
+d_iso=3.0e-3
+delta=37.8e-3
+delta_dir_1=delta*np.ones((dir_shell_1,1)) #s
+delta_dir_2=delta*np.ones((dir_shell_2,1)) #s
+smalldel=17.5e-3
+smalldel_dir_1=smalldel*np.ones((dir_shell_1,1)) #s
+smalldel_dir_2=smalldel*np.ones((dir_shell_2,1)) #s
 
-A=np.zeros((N_train, N_input, nb_directions))
+def noddi_signal(params, ic_model, ec_model, iso_model):
+    vol_iso, vol_ic, od = params
+    signal_ic = ic_model.get_signal(d_par, od)
+    signal_ec = ec_model.get_signal(d_par, od, vol_ic)
+    signal_iso = iso_model.get_signal(d_iso)
+    S = (
+        (1 - vol_iso)
+        * (vol_ic * signal_ic + (1 - vol_ic) * signal_ec)
+        + vol_iso * signal_iso
+    )
+    return np.asarray(S).ravel()
+
+ic_model_1=[]
+ec_model_1=[]
+iso_model_1=[]
+for j in range(N_input):
+    Gj=G_dir_1[:,j]
+    ic_model_1.append(NODDIIntraCellular(directions_shell_1, Gj, delta_dir_1, smalldel_dir_1))
+    ec_model_1.append(NODDIExtraCellular(directions_shell_1, Gj, delta_dir_1, smalldel_dir_1))
+    iso_model_1.append(NODDIIsotropic(directions_shell_1, Gj, delta_dir_1, smalldel_dir_1))
+
+ic_model_2=[]
+ec_model_2=[]
+iso_model_2=[]
+for k in range(N_input):
+    Gk=G_dir_2[:,k]
+    ic_model_2.append(NODDIIntraCellular(directions_shell_2, Gk, delta_dir_2, smalldel_dir_2))
+    ec_model_2.append(NODDIExtraCellular(directions_shell_2, Gk, delta_dir_2, smalldel_dir_2))
+    iso_model_2.append(NODDIIsotropic(directions_shell_2, Gk, delta_dir_2, smalldel_dir_2))
+
+A_1=np.zeros((N_train, N_input, dir_shell_1))
 for i in range(N_train):
-    A[i]=signal(G_dir,vol_iso[i].item(),vol_ic[i].item(),kappa[i].item(),nb_directions)
-A=torch.tensor(A)
+    for j in range(N_input):
+        A_1[i][j]=noddi_signal((vol_iso[i],vol_ic[i],od[i]),ic_model_1[j], ec_model_1[j], iso_model_1[j])
+A_1=torch.tensor(A_1)
 
 sigma=1/SNR
-noise=torch.normal(0,sigma, size=(N_train,N_input, nb_directions))
-X = A + noise
+noise=torch.normal(0,sigma, size=(N_train,N_input, dir_shell_1))
+X_1 = A_1 + noise
 
-training_data=Signals(X,X)
+A_2=np.zeros((N_train, N_input, dir_shell_2))
+for i in range(N_train):
+    for j in range(N_input):
+        A_2[i][j]=noddi_signal((vol_iso[i],vol_ic[i],od[i]),ic_model_2[j], ec_model_2[j], iso_model_2[j])
+A_2=torch.tensor(A_2)
+
+sigma=1/SNR
+noise=torch.normal(0,sigma, size=(N_train,N_input, dir_shell_2))
+X_2 = A_2 + noise
+
+X=[]
+for i in range(N_input):
+    for j in range(N_input):
+        if j!=i:
+            X.append(torch.cat((X_1[:,i],X_2[:,j]),1))
+X = torch.stack(X)
+X = X.transpose(0,1)
+
+vol_iso=torch.tensor(vol_iso).unsqueeze(-1) 
+vol_ic=torch.tensor(vol_ic).unsqueeze(-1) 
+od=torch.tensor(od).unsqueeze(-1) 
+
+Y_1=torch.ones(N_train,3,dir_shell_1)
+vol_iso_1 = vol_iso.expand(-1, -1,dir_shell_1)
+vol_ic_1 = vol_ic.expand(-1, -1, dir_shell_1)
+od_1=od.expand(-1, -1, dir_shell_1)
+Y_1[:,0:1,:]=vol_iso_1
+Y_1[:,1:2,:]=vol_ic_1
+Y_1[:,2:3,:]=od_1
+
+Y_2=torch.ones(N_train,3,dir_shell_2)
+vol_iso_2 = vol_iso.expand(-1, -1, dir_shell_2)
+vol_ic_2 = vol_ic.expand(-1, -1, dir_shell_2)
+od_2 =od.expand(-1, -1, dir_shell_2)
+Y_2[:,0:1,:]=vol_iso_2
+Y_2[:,1:2,:]=vol_ic_2
+Y_2[:,2:3,:]=od_2
+
+Y=torch.cat((Y_1,Y_2),2)
+
+print(X.shape, Y.shape)
+
+training_data=Signals(X,Y)
 
 vol_iso = np.random.rand(1, N_test).reshape(N_test, 1)
 vol_ic = np.random.rand(1, N_test).reshape(N_test, 1)
-kappa_min, kappa_max = 1e-3, 600
-OD = np.random.rand(1,N_test).reshape(N_test,1)
-kappa = kappa_min + (kappa_max-kappa_min)*OD
+od_min, od_max=0.001, 0.99
+od = od_min + (od_max-od_min)*np.random.rand(1,N_test).reshape(N_test,1)
 
-A=np.zeros((N_test, N_input, nb_directions))
+A_1=np.zeros((N_test, N_input, dir_shell_1))
 for i in range(N_test):
-    A[i]=signal(G_dir,vol_iso[i].item(),vol_ic[i].item(),kappa[i].item(),nb_directions)
-A=torch.tensor(A)
+    for j in range(N_input):
+        A_1[i][j]=noddi_signal((vol_iso[i],vol_ic[i],od[i]),ic_model_1[j], ec_model_1[j], iso_model_1[j])
+A_1=torch.tensor(A_1)
 
 sigma=1/SNR
-noise=torch.normal(0,sigma, size=(N_test, N_input, nb_directions))
-Y = A + noise
+noise=torch.normal(0,sigma, size=(N_test,N_input, dir_shell_1))
+X_1 = A_1 + noise
 
-testing_data=Signals(Y,Y)
+A_2=np.zeros((N_test, N_input, dir_shell_2))
+for i in range(N_test):
+    for j in range(N_input):
+        A_2[i][j]=noddi_signal((vol_iso[i],vol_ic[i],od[i]),ic_model_2[j], ec_model_2[j], iso_model_2[j])
+A_2=torch.tensor(A_2)
+
+sigma=1/SNR
+noise=torch.normal(0,sigma, size=(N_test,N_input, dir_shell_2))
+X_2 = A_2 + noise
+
+X=[]
+for i in range(N_input):
+    for j in range(N_input):
+        if j!=i:
+            X.append(torch.cat((X_1[:,i],X_2[:,j]),1))
+X = torch.stack(X)
+X = X.transpose(0,1)
+
+vol_iso=torch.tensor(vol_iso).unsqueeze(-1) 
+vol_ic=torch.tensor(vol_ic).unsqueeze(-1) 
+od=torch.tensor(od).unsqueeze(-1) 
+
+Y_1=torch.ones(N_test,3,dir_shell_1)
+vol_iso_1 = vol_iso.expand(-1, -1,dir_shell_1)
+vol_ic_1 = vol_ic.expand(-1, -1, dir_shell_1)
+od_1=od.expand(-1, -1, dir_shell_1)
+Y_1[:,0:1,:]=vol_iso_1
+Y_1[:,1:2,:]=vol_ic_1
+Y_1[:,2:3,:]=od_1
+
+Y_2=torch.ones(N_test,3,dir_shell_2)
+vol_iso_2 = vol_iso.expand(-1, -1, dir_shell_2)
+vol_ic_2 = vol_ic.expand(-1, -1, dir_shell_2)
+od_2 =od.expand(-1, -1, dir_shell_2)
+Y_2[:,0:1,:]=vol_iso_2
+Y_2[:,1:2,:]=vol_ic_2
+Y_2[:,2:3,:]=od_2
+
+Y=torch.cat((Y_1,Y_2),2)
+
+testing_data=Signals(X,Y)
 
 train_dataloader = DataLoader(training_data, batch_size=64, shuffle=True)
 test_dataloader = DataLoader(testing_data, batch_size=64, shuffle=True)
@@ -498,36 +604,36 @@ class ConcreteLayer(nn.Module):
         return outputs
 
 class CAE(nn.Module):
-    def __init__(self, input_dim=N_input, features=N_features, n_hidden_layers=N_hidden_layer, dropout=0.0):
+    def __init__(self, input_dim=9*N_input, features=N_features, n_hidden_layers=N_hidden_layer, dropout=0.0):
         super().__init__()
         indices2=np.arange(2+n_hidden_layers)
         data_indices2=np.array([indices2[0], indices2[-1]])
-        data2=np.array([features,input_dim])
+        data2=np.array([features,3])
         layer_sizes=np.interp(indices2, data_indices2, data2).astype(int)
         n_layers=len(layer_sizes)
         layers=[]
         for i in range(1, n_layers):
             if i==n_layers-1:
                 layers.append(nn.Linear(layer_sizes[i-1],layer_sizes[i]))
-            else: 
+                layers.append(nn.Softplus())
+            else:
                 layers.append(nn.Linear(layer_sizes[i-1],layer_sizes[i]))
-                layers.append(nn.LeakyReLU(True))
+                layers.append(nn.ReLU(True))
             
-        #print(layer_sizes,layers)
+        print(layer_sizes,layers)
         self.encoder=ConcreteLayer(input_dim, features)
         self.decoder=nn.Sequential(*layers)
 
-    def forward(self, x, temperature, random, threshold):
+    def forward(self, x, random, temperature, threshold):
         outputs=self.encoder(x, random, temperature, threshold)
         x=self.decoder(outputs["latent"])
-        x = x.transpose(1, 2)
-        reg=outputs["reg"]
-        returns = {'X_rec': x, 'REG': reg, 'Idx': outputs["idx"]}
+        x=x.transpose(1, 2)
+        returns = {'Parameters': x, 'Idx': outputs["idx"]}
         return returns
 
 def temp_value(num_epochs, temp_base, temp_min, epoch):
     temp=temp_base*(temp_min/temp_base)**(epoch/num_epochs)
-    return temp
+    return temp 
     
 model=CAE().to(device)
 
@@ -537,7 +643,7 @@ epochs = 50
 
 temp_base=10
 temp_min=0.1
-threshold=1 #0.05 for 4 neurons
+threshold=1 #0.08 for 4 neurons
 strength=0.1
 
 loss_function = nn.MSELoss()
@@ -549,51 +655,66 @@ def train_loop(epoch, model, train_loader, optimizer):
     num_batches=len(train_loader)
     for batch, (X, y) in enumerate(train_loader):
         X, y = X.to(device), y.to(device)
+        #print(X.shape,y.shape)
         temp=temp_value(epochs, temp_base, temp_min, epoch)
         optimizer.zero_grad()
-        returns = model(X, temp, True, threshold)
-        reg=returns['REG']
-        recon_batch=returns['X_rec']
-        loss = loss_function(recon_batch, y)+strength*reg
+        returns = model(X, True, temp, threshold)
+        #reg=returns['REG']
+        recon_batch=returns['Parameters']
+        loss = loss_function(recon_batch, y)#+strength*reg
         sum_loss+=loss
         loss.backward()
         optimizer.step()
-    sum_loss/=num_batches
-    if epoch%5==0:
+        sum_loss/=num_batches
+    if epoch%5 ==0:
+        #print(loss_function(recon_batch, y).item(), reg.item())
         print(f"Epoch {epoch}, Average Loss: {sum_loss:.6f}")
 
-def test_loop(epoch, dataloader, model, loss_fn, loss_threshold, indices):
+def test_loop(epoch, dataloader, model, loss_fn, loss_threshold,indices):
     model.eval()
-    size=len(dataloader.dataset)
-    num_batches=len(dataloader)
-    test_loss=0
-    absolute_errors=[]
+    num_batches = len(dataloader)
+    test_loss = 0
+    iso_absolute_errors = []
+    ic_absolute_errors = []
+    od_absolute_errors = []
     with torch.no_grad():
-        for X,y in dataloader:
+        for X, y in dataloader:
             X, y = X.to(device), y.to(device)
-            temp=temp_value(epochs, temp_base, temp_min, epoch)
-            returns = model(X, temp, False, threshold)
-            pred =returns['X_rec']
+            temp = temp_value(epochs, temp_base, temp_min, epoch)
+            returns = model(X, False, temp, threshold)
+            pred = returns['Parameters']
             idx = returns['Idx']
-            test_loss += loss_fn(pred,y)
+            test_loss += loss_fn(pred, y).item()
             for i in range(len(pred)):
-                for j in range(N_input):
-                    error = abs(pred[i, j] - y[i, j])
-                    absolute_errors.append(error)
-    test_loss/=num_batches
-    mean_ae = sum(absolute_errors) / len(absolute_errors)
-    mean_ae = torch.mean(mean_ae)
-    max_ae = torch.cat(absolute_errors).max()
-    min_ae = torch.cat(absolute_errors).min()
+                # Absolute errors for S and D
+                iso_error = abs(pred[i, 0] - y[i, 0])
+                ic_error = abs(pred[i, 1] - y[i, 1])
+                od_error = abs(pred[i, 2] - y[i, 2])
+                iso_absolute_errors.append(iso_error)
+                ic_absolute_errors.append(ic_error)
+                od_absolute_errors.append(od_error)
+    test_loss /= num_batches
+    # Calculate mean, max, min absolute errors
+    iso_mean_ae = torch.mean(sum(iso_absolute_errors) / len(iso_absolute_errors))
+    ic_mean_ae = torch.mean(sum(ic_absolute_errors) / len(ic_absolute_errors))
+    od_mean_ae = torch.mean(sum(od_absolute_errors) / len(od_absolute_errors))
+    iso_max_ae = torch.cat(iso_absolute_errors).max()
+    ic_max_ae = torch.cat(ic_absolute_errors).max()
+    od_max_ae = torch.cat(od_absolute_errors).max()
+    iso_min_ae = torch.cat(iso_absolute_errors).min()
+    ic_min_ae = torch.cat(ic_absolute_errors).min()
+    od_min_ae = torch.cat(od_absolute_errors).min()
     if test_loss<loss_threshold:
         indices=idx.tolist().copy()
         loss_threshold=test_loss
-    if epoch%5==0:
+    if epoch %5 == 0:
         print(
-                f"Test Error: \n"
-                f"Avg loss: {test_loss:>8f} \n"
-                f"Absolute Error - Mean: {mean_ae} - Min: {min_ae} - Max: {max_ae}"
-            )
+            f"Test Error: \n"
+            f"Avg loss: {test_loss:>8f} \n"
+            f"vf_iso Absolute Error - Mean: {iso_mean_ae} - Min: {iso_min_ae} - Max: {iso_max_ae}\n"
+            f"vf_ic Absolute Error - Mean: {ic_mean_ae} - Min: {ic_min_ae} - Max: {ic_max_ae}\n"
+            f"OD Absolute Error - Mean: {od_mean_ae} - Min: {od_min_ae} - Max: {od_max_ae}\n"
+        )
     return indices, loss_threshold
 
 indices = None
@@ -603,25 +724,19 @@ for epoch in range(1, epochs + 1):
     train_loop(epoch, model, train_dataloader, optimizer)
     indices, loss_threshold = test_loop(epoch, test_dataloader, model, loss_function,loss_threshold,indices)
 
-indices=np.array(indices)
-best_G=G[indices]
+indice=np.squeeze(indices)
+indice_1=indice//10
+indice_2=indice%10
+G_1=G[indice_1]
+G_2=G[indice_2]
 
-def b_value(G):
-    delta=37.8e-3
-    smalldel=17.5e-3
-    modQ = _GAMMA*smalldel*G
-    modQ_Sq = np.power(modQ,2)
-    difftime = delta-smalldel/3.0
-    return difftime*modQ_Sq/np.power(10,6)
+bests_G=[G_1, G_2]
 
-b_val=b_value(best_G)
-
-chemin = f"./subset_data_{nb_directions}_{N_features}.csv"
+chemin = f"./subset_param_2_shells.csv"
 
 with open(chemin, mode='w') as mon_fichier:
     mon_fichier_ecrire = csv.writer(mon_fichier, delimiter=',',
                                     quotechar='"',
                                     quoting=csv.QUOTE_MINIMAL)
 
-    mon_fichier_ecrire.writerow(best_G)
-print(b_val)
+    mon_fichier_ecrire.writerow(bests_G)
