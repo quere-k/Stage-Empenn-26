@@ -561,7 +561,7 @@ epochs = 50
 
 temp_base=10
 temp_min=0.1
-threshold=1 #0.08 for 4 neurons
+threshold=0.08
 strength=0.1
 
 loss_function = nn.MSELoss()
