@@ -1,5 +1,7 @@
 # Stage-Empenn-26
 
+The aim of this internship is to improve acquisition schemes in diffusion MRI (dMRI) for parameter estimation using neural networks and dictionary-based representations. Two different models for signal fitting are used : a signal representation and a three-compartment tissue model.
+
 ## Content
 - neural networks without selection layer
     - data-driven
@@ -16,5 +18,5 @@
 - parameter estimation
 
 ## Models
-- S=S_0e^{-bD}
+- $S=S_0e^{-bD}$
 - NODDI model 
