@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 import csv
 
+#Class to create datasets
 class Signals(Dataset):
     def __init__(self,X,Y):
         self.X=X
@@ -19,6 +20,7 @@ class Signals(Dataset):
         y=self.Y[idx]
         return x,y
 
+#Hyperparameters initialization
 N_train=12000
 N_test=3000
 N_input=200
@@ -27,18 +29,18 @@ N_hidden_layer=2
 
 SNR=30
 
+#Generation of the datasets
+#Range of parameters
 b_min, b_max = 10.0, 2000.0 # s/mm^2
-b=torch.linspace(b_min,b_max,N_input)
-#b=(b-torch.min(b))/(torch.max(b)-torch.min(b))
+b=torch.linspace(b_min,b_max,N_input)#evenly spaced
 
 S0_min, S0_max = 0.5, 5.0
-S= S0_min + (S0_max - S0_min) * torch.rand(N_train,1)
-#S=(S-torch.min(S))/(torch.max(S)-torch.min(S))
+S= S0_min + (S0_max - S0_min) * torch.rand(N_train,1)#randomly generated
 
 D_min, D_max  = 0.1e-3, 3.0e-3
-D=D_min + (D_max - D_min) * torch.rand(N_train,1)
-#D=(D-torch.min(D))/(torch.max(D)-torch.min(D))
+D=D_min + (D_max - D_min) * torch.rand(N_train,1)#randomly generated
 
+#Signal matrix N_train*N_input
 X=torch.zeros(N_train,N_input)
 for i in range(0,N_train):
     X[i,:]=S[i]*torch.exp(-b*D[i])
@@ -46,6 +48,7 @@ sigma = torch.mean(S) / SNR
 noise = torch.normal(0, sigma, size=(N_train, N_input))
 X=X+noise
 
+#Parameter matrix N_train*N_parameter
 Y=torch.ones(N_train,2)
 Y[:,0]=torch.transpose(S,0,1)
 Y[:,1]=torch.transpose(D,0,1)
@@ -54,11 +57,9 @@ training_data=Signals(X,Y)
 
 S0_min, S0_max = 0.5, 5.0
 S= S0_min + (S0_max - S0_min) * torch.rand(N_test,1)
-#S=(S-torch.min(S))/(torch.max(S)-torch.min(S))
 
 D_min, D_max  = 0.1e-3, 3.0e-3
 D=D_min + (D_max - D_min) * torch.rand(N_test,1)
-#D=(D-torch.min(D))/(torch.max(D)-torch.min(D))
 
 X=torch.zeros(N_test,N_input)
 for i in range(0,N_test):
@@ -77,11 +78,13 @@ testing_data=Signals(X,Y)
 train_dataloader = DataLoader(training_data, batch_size=64, shuffle=True)
 test_dataloader = DataLoader(testing_data, batch_size=64, shuffle=True)
 
+#Use CPU when available
 device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
 print(f"Using {device} device")
 
 b=b.to(device)
 
+#Class for the construction of the concrete selection layer
 class ConcreteLayer(nn.Module):
     def __init__(self, num_inputs, num_features, pi_dropout=0.0):
         super().__init__()
@@ -92,7 +95,7 @@ class ConcreteLayer(nn.Module):
         #Initialization
         logits_init=torch.rand(num_features,num_inputs)
         logits_init=logits_init/torch.sum(logits_init)
-        self.logits=nn.Parameter(logits_init, requires_grad=True) #Learnable for the model
+        self.logits=nn.Parameter(logits_init, requires_grad=True) #make logits learnable for the model
         self.pi_dropout=nn.Dropout(pi_dropout) #Desactivate inputs with pi=0.0, initialize Dropout layer
     
     def get_pi(self, ):
@@ -116,12 +119,12 @@ class ConcreteLayer(nn.Module):
         
         return selector_matrix, reg
     
-    def regularization(self, logits, threshold):
+    def regularization(self, logits, threshold): # Regularization function (avoid multiple selection)
         num_inputs=self.num_inputs
         pi=F.softmax(logits, dim=1)
         L=torch.zeros(num_inputs)
         for i in range(num_inputs):
-            L[i]=F.relu(torch.sum(pi[:,i]-threshold))
+            L[i]=F.relu(torch.sum(pi[:,i]-threshold)) #Probability sum for a same input over selection neurons
         reg=torch.sum(L)
         return reg
 
@@ -131,7 +134,7 @@ class ConcreteLayer(nn.Module):
         outputs= {"latent": x, "reg": reg, "idx": torch.argmax(selector, dim=1)}
         return outputs
 
-
+#Class for the normalization
 class Normalization(nn.Module):
     def __init__(self,input_dim, features, output_dim=2):
         super().__init__()
@@ -140,13 +143,13 @@ class Normalization(nn.Module):
         for pp in range(output_dim):
             normlist.append(nn.Linear(1,1, bias=False))
         self.sgmnorm = nn.ModuleList(normlist)
-        self.param_min = torch.tensor([S0_min, D_min], device=device)
-        self.param_max = torch.tensor([S0_max, D_max], device=device)
+        self.param_min = torch.tensor([S0_min, D_min], device=device) #Minimum values
+        self.param_max = torch.tensor([S0_max, D_max], device=device) #Maximum values
         self.param_name = ['S0', 'D']
         self.con_one=torch.tensor([1.0],device=device)
         self.con_two=torch.tensor([2.0],device=device)
     
-    def getnorm(self,x):
+    def getnorm(self,x): # learn the normalization factors
         if x.dim()==1:
             normt = torch.zeros(self.nparam, device=device)
             for pp in range(self.nparam):
@@ -171,7 +174,7 @@ class Normalization(nn.Module):
             
         return x
     
-    def getparams(self,x):
+    def getparams(self,x): # calculate the value of parameters using normalization factors and min and max values
         x = torch.log(x)
         x = x - torch.log(torch.log(self.con_two))
         x = self.getnorm(x)
@@ -186,7 +189,7 @@ class Normalization(nn.Module):
             x = (max_val - min_val)*x + min_val
         return x
 
-    def getsignals(self,x):
+    def getsignals(self,x): # calculate signals using parameters values
         if x.dim()==1:
             b_D = b*x[1]
             s_tot=x[0]*torch.exp(-b_D)
@@ -202,16 +205,17 @@ class Normalization(nn.Module):
         outputs= {"parameters": param, "signal": signal}
         return outputs
 
+# Class for the construction of the concrete auto-encoder = selection layer + decoder
 class CAE(nn.Module):
     def __init__(self, input_dim=N_input, features=N_features, n_hidden_layers=N_hidden_layer, dropout=0.0):
         super().__init__()
         indices2=np.arange(2+n_hidden_layers)
         data_indices2=np.array([indices2[0], indices2[-1]])
         data2=np.array([features,2])
-        layer_sizes=np.interp(indices2, data_indices2, data2).astype(int)
+        layer_sizes=np.interp(indices2, data_indices2, data2).astype(int) # 1D linear interpolation for hidden neurons
         n_layers=len(layer_sizes)
         layers=[]
-        for i in range(1, n_layers):
+        for i in range(1, n_layers): #Contruction of the hidden layers
             if i==n_layers-1:
                 layers.append(nn.Linear(layer_sizes[i-1],layer_sizes[i]))
                 layers.append(nn.Softplus())
@@ -225,19 +229,20 @@ class CAE(nn.Module):
         self.normalization=Normalization(input_dim, features)
 
     def forward(self, x, temperature, random, threshold):
-        outputs=self.encoder(x, random, temperature, threshold)
-        x=self.decoder(outputs["latent"])
+        outputs=self.encoder(x, random, temperature, threshold) #concrete selection layer
+        x=self.decoder(outputs["latent"]) #decoder
         x=self.normalization(x)
         reg=outputs["reg"]
         returns = {'Parameters': x['parameters'], 'MRI': x['signal'], 'REG': reg, 'Idx': outputs["idx"]}
         return returns
 
-def temp_value(num_epochs, temp_base, temp_min, epoch):
+def temp_value(num_epochs, temp_base, temp_min, epoch): # Exponential decrease for the temperature
     temp=temp_base*(temp_min/temp_base)**(epoch/num_epochs)
     return temp 
     
 model=CAE().to(device)
 
+#Hyperparameters for the training + loss calculation
 learning_rate = 1e-3
 batch_size = 64
 epochs = 50
@@ -250,18 +255,19 @@ strength=0.1
 loss_function = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+#Training loop
 def train_loop(epoch, model, train_loader, optimizer):
     model.train()
     sum_loss=0
     num_batches=len(train_loader)
     for batch, (X, y) in enumerate(train_loader):
         X, y = X.to(device), y.to(device)
-        temp=temp_value(epochs, temp_base, temp_min, epoch)
+        temp=temp_value(epochs, temp_base, temp_min, epoch) #temperature update
         optimizer.zero_grad()
-        returns = model(X, temp, True, threshold)
+        returns = model(X, temp, True, threshold) #training of the model
         reg=returns['REG']
         recon_batch=returns['Parameters']
-        loss = loss_function(recon_batch, y)+strength*reg
+        loss = loss_function(recon_batch, y)+strength*reg #calculation of the loss
         sum_loss+=loss
         loss.backward()
         optimizer.step()
@@ -273,34 +279,24 @@ def test_loop(epoch, dataloader, model, loss_fn, loss_threshold, indices):
     model.eval()
     size = len(dataloader.dataset)
     num_batches = len(dataloader)
-    test_loss, Scorrect, Dcorrect = 0, 0, 0
+    test_loss = 0
     S_absolute_errors = []
     D_absolute_errors = []
     with torch.no_grad():
         for X, y in dataloader:
             X, y = X.to(device), y.to(device)
-            temp = temp_value(epochs, temp_base, temp_min, epoch)
-            returns = model(X, temp, False, threshold)
+            temp = temp_value(epochs, temp_base, temp_min, epoch) #temperature update
+            returns = model(X, temp, False, threshold) #testing of the model
             pred = returns['Parameters']
             idx = returns['Idx']
             test_loss += loss_fn(pred, y).item()
-            # S_m = y[:, 0] - y[:, 0] * 0.1
-            # S_p = y[:, 0] + y[:, 0] * 0.1
-            # D_m = y[:, 1] - y[:, 1] * 0.1
-            # D_p = y[:, 1] + y[:, 1] * 0.1
             for i in range(len(pred)):
                 # Absolute errors for S and D
-                S_error = abs(pred[i, 0] - y[i, 0])
-                D_error = abs(pred[i, 1] - y[i, 1])
+                S_error = abs(pred[i, 0] - y[i, 0]) #calculation of the error on S
+                D_error = abs(pred[i, 1] - y[i, 1]) #calculation of the error on D
                 S_absolute_errors.append(S_error.item())
                 D_absolute_errors.append(D_error.item())
-                # if pred[i][0] > S_m[i] and pred[i][0] < S_p[i]:
-                #     Scorrect += 1
-                # if pred[i][1] > D_m[i] and pred[i][1] < D_p[i]:
-                #     Dcorrect += 1
     test_loss /= num_batches
-    # Scorrect /= size
-    # Dcorrect /= size
     # Calculate mean, max, min absolute errors
     S_mean_ae = sum(S_absolute_errors) / len(S_absolute_errors)
     S_max_ae = max(S_absolute_errors)
@@ -315,21 +311,21 @@ def test_loop(epoch, dataloader, model, loss_fn, loss_threshold, indices):
     if epoch %5 == 0:
         print(
             f"Test Error: \n"
-            #f"Accuracy on S: {(100*Scorrect):>0.1f}%, Accuracy on D: {(100*Dcorrect):>0.1f}%"
             f"Avg loss: {test_loss:>8f} \n"
             f"S Absolute Error - Mean: {S_mean_ae:.4f}, Max: {S_max_ae:.4f}, Min: {S_min_ae:.4f}\n"
             f"D Absolute Error - Mean: {D_mean_ae:.4f}, Max: {D_max_ae:.4f}, Min: {D_min_ae:.4f}\n"
         )
-    return indices, loss_threshold  # Retourne les valeurs mises à jour
+    return indices, loss_threshold  # return the indices and the new threshold
 
-# Boucle principale
 indices = None
 loss_threshold = float('inf')  # Initialisation
 
+#main loop
 for epoch in range(1, epochs + 1):
     train_loop(epoch, model, train_dataloader, optimizer)
     indices, loss_threshold = test_loop(epoch, test_dataloader, model, loss_function, loss_threshold,indices)
 
+#store the best subset in a csv file 
 chemin = "./subset_param.csv"
 
 with open(chemin, mode='w') as mon_fichier:
