@@ -18,5 +18,5 @@ The aim of this internship is to improve acquisition schemes in diffusion MRI (d
 - parameter estimation
 
 ## Models
-- $S=S_0e^{-bD}$
+- Stejskal-Tanner diffusion equation : $S=S_0e^{-bD}$
 - NODDI model 
