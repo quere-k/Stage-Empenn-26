@@ -30,6 +30,6 @@ The aim of this internship is to improve acquisition schemes in diffusion MRI (d
 - NODDI model 
 
 ## Bibliography
-1- Optimisation of quantitative brain diffusion-relaxation MRI acquisition protocols with physics-informed machine learning, Planchuelo-Gómez et al
-2- Optimization of Acquisition Schemes Towards a Better Estimation of Microstructure Parameters in Multidimensional Diffusion MRI, Bocquillon et al
-3- NODDI: Practical in vivo neurite orientation dispersion and density imaging of the human brain, Zhang et al
+1 - Optimisation of quantitative brain diffusion-relaxation MRI acquisition protocols with physics-informed machine learning, Planchuelo-Gómez et al
+2 - Optimization of Acquisition Schemes Towards a Better Estimation of Microstructure Parameters in Multidimensional Diffusion MRI, Bocquillon et al
+3 - NODDI: Practical in vivo neurite orientation dispersion and density imaging of the human brain, Zhang et al
