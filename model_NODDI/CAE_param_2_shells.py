@@ -10,6 +10,7 @@ import csv
 
 _GAMMA = 2.675987e8
 
+#Class to create datasets
 class Signals(Dataset):
     def __init__(self,X,Y):
         self.X=X
@@ -23,32 +24,36 @@ class Signals(Dataset):
         y=self.Y[idx]
         return x,y
 
+#Hyperparameters initialization
 N_train=3072
 N_test=960
 N_input=10
 N_features=1
 N_hidden_layer=2
 
+#shell directions
 dir_shell_1=30
 dir_shell_2=60
 
 SNR=30
 
+#Generation of the datasets
+#Range of parameters
 G_min, G_max= 30e-3, 65e-3  #T/m
-G=np.linspace(G_min, G_max, N_input)
+G=np.linspace(G_min, G_max, N_input) #evenly spaced
 
-directions_shell_1=jones(dir_shell_1)
+directions_shell_1=jones(dir_shell_1) #distribution of 30 directions 
 G_dir_1=G*np.ones((dir_shell_1,1)) #T/m
 
-directions_shell_2=jones(dir_shell_2)
+directions_shell_2=jones(dir_shell_2) #distribution of 60 directions 
 G_dir_2=G*np.ones((dir_shell_2,1)) #T/m
 
-vol_iso = np.random.rand(1, N_train).reshape(N_train, 1)
-vol_ic = np.random.rand(1, N_train).reshape(N_train, 1)
+vol_iso = np.random.rand(1, N_train).reshape(N_train, 1) #randomly generated
+vol_ic = np.random.rand(1, N_train).reshape(N_train, 1) #randomly generated
 od_min, od_max=0.001, 0.99
-od = od_min + (od_max-od_min)*np.random.rand(1,N_train).reshape(N_train,1)
+od = od_min + (od_max-od_min)*np.random.rand(1,N_train).reshape(N_train,1) #randomly generated
 
-#Adaptation from AMICO
+#Adaptation from AMICO -NODDI signals
 class NODDIIntraCellular: #Compute the signal in the intra-cellular compartment
     def __init__(self,grad_dirs, G, delta, smalldel):
         self.grad_dirs=grad_dirs
@@ -396,6 +401,7 @@ class NODDIIsotropic: #Compute the signal in the CSF
         difftime = delta.transpose()-smalldel.transpose()/3.0
         return np.exp(-difftime*modQ_Sq*d)
 
+#Acquisition parameters
 d_par=1.7e-3
 d_iso=3.0e-3
 delta=37.8e-3
@@ -405,7 +411,7 @@ smalldel=17.5e-3
 smalldel_dir_1=smalldel*np.ones((dir_shell_1,1)) #s
 smalldel_dir_2=smalldel*np.ones((dir_shell_2,1)) #s
 
-def noddi_signal(params, ic_model, ec_model, iso_model):
+def noddi_signal(params, ic_model, ec_model, iso_model): #Compute the total signal
     vol_iso, vol_ic, od = params
     signal_ic = ic_model.get_signal(d_par, od)
     signal_ec = ec_model.get_signal(d_par, od, vol_ic)
@@ -417,6 +423,7 @@ def noddi_signal(params, ic_model, ec_model, iso_model):
     )
     return np.asarray(S).ravel()
 
+#make each class depending on G value - shell 1
 ic_model_1=[]
 ec_model_1=[]
 iso_model_1=[]
@@ -425,7 +432,7 @@ for j in range(N_input):
     ic_model_1.append(NODDIIntraCellular(directions_shell_1, Gj, delta_dir_1, smalldel_dir_1))
     ec_model_1.append(NODDIExtraCellular(directions_shell_1, Gj, delta_dir_1, smalldel_dir_1))
     iso_model_1.append(NODDIIsotropic(directions_shell_1, Gj, delta_dir_1, smalldel_dir_1))
-
+#make each class depending on G value - shell 2
 ic_model_2=[]
 ec_model_2=[]
 iso_model_2=[]
@@ -435,6 +442,7 @@ for k in range(N_input):
     ec_model_2.append(NODDIExtraCellular(directions_shell_2, Gk, delta_dir_2, smalldel_dir_2))
     iso_model_2.append(NODDIIsotropic(directions_shell_2, Gk, delta_dir_2, smalldel_dir_2))
 
+#Signal matrix N_train*N_input*N_directions
 A_1=np.zeros((N_train, N_input, dir_shell_1))
 for i in range(N_train):
     for j in range(N_input):
@@ -455,6 +463,7 @@ sigma=1/SNR
 noise=torch.normal(0,sigma, size=(N_train,N_input, dir_shell_2))
 X_2 = A_2 + noise
 
+#Make pairs of b-values and concatenate directions 1 and directions 2
 X=[]
 for i in range(N_input):
     for j in range(N_input):
@@ -463,6 +472,7 @@ for i in range(N_input):
 X = torch.stack(X)
 X = X.transpose(0,1)
 
+#Parameters matrix N_train*N_parameters*N_directions
 vol_iso=torch.tensor(vol_iso).unsqueeze(-1) 
 vol_ic=torch.tensor(vol_ic).unsqueeze(-1) 
 od=torch.tensor(od).unsqueeze(-1) 
@@ -549,9 +559,11 @@ testing_data=Signals(X,Y)
 train_dataloader = DataLoader(training_data, batch_size=64, shuffle=True)
 test_dataloader = DataLoader(testing_data, batch_size=64, shuffle=True)
 
+#Use CPU when available
 device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
 print(f"Using {device} device")
 
+#Class for the construction of the concrete selection layer
 class ConcreteLayer(nn.Module):
     def __init__(self, num_inputs, num_features, pi_dropout=0.0):
         super().__init__()
@@ -562,7 +574,7 @@ class ConcreteLayer(nn.Module):
         #Initialization
         logits_init=torch.rand(num_features,num_inputs)
         logits_init=logits_init/torch.sum(logits_init)
-        self.logits=nn.Parameter(logits_init, requires_grad=True) #Learnable for the model
+        self.logits=nn.Parameter(logits_init, requires_grad=True) #make logits learnable for the model
         self.pi_dropout=nn.Dropout(pi_dropout) #Desactivate inputs with pi=0.0, initialize Dropout layer
     
     def get_pi(self, ):
@@ -586,33 +598,34 @@ class ConcreteLayer(nn.Module):
         
         return selector_matrix, reg
     
-    def regularization(self, logits, threshold):
+    def regularization(self, logits, threshold): # Regularization function (avoid multiple selection)
         num_inputs=self.num_inputs
         pi=F.softmax(logits, dim=1)
         L=torch.zeros(num_inputs, device=device)
         for i in range(num_inputs):
-            L[i]=F.relu(torch.sum(pi[:,i])-threshold)
+            L[i]=F.relu(torch.sum(pi[:,i])-threshold) #Probability sum for a same input over selection neurons
         reg=torch.sum(L)
         return reg
 
     def forward(self, x, random, temperature, threshold, hard=False):
         selector,reg=self.sample_matrix(temperature, random, threshold, hard)
         x = x.to(torch.float32)
-        x = x.transpose(1, 2)
-        x=F.linear(x,selector)
+        x = x.transpose(1, 2) #N_train*N_directions*N_pairs
+        x=F.linear(x,selector) #selection over the pairs
         outputs= {"latent": x, "reg": reg, "idx": torch.argmax(selector, dim=1)}
         return outputs
 
+# Class for the construction of the concrete auto-encoder = selection layer + decoder
 class CAE(nn.Module):
     def __init__(self, input_dim=9*N_input, features=N_features, n_hidden_layers=N_hidden_layer, dropout=0.0):
         super().__init__()
         indices2=np.arange(2+n_hidden_layers)
         data_indices2=np.array([indices2[0], indices2[-1]])
         data2=np.array([features,3])
-        layer_sizes=np.interp(indices2, data_indices2, data2).astype(int)
+        layer_sizes=np.interp(indices2, data_indices2, data2).astype(int) # 1D linear interpolation for hidden neurons
         n_layers=len(layer_sizes)
         layers=[]
-        for i in range(1, n_layers):
+        for i in range(1, n_layers): #Contruction of the hidden layers
             if i==n_layers-1:
                 layers.append(nn.Linear(layer_sizes[i-1],layer_sizes[i]))
                 layers.append(nn.Softplus())
@@ -625,51 +638,51 @@ class CAE(nn.Module):
         self.decoder=nn.Sequential(*layers)
 
     def forward(self, x, random, temperature, threshold):
-        outputs=self.encoder(x, random, temperature, threshold)
-        x=self.decoder(outputs["latent"])
-        x=x.transpose(1, 2)
+        outputs=self.encoder(x, random, temperature, threshold) #concrete selection layer
+        x=self.decoder(outputs["latent"]) #decoder
+        x=x.transpose(1, 2) #N_train*N_pairs*N_directions
         returns = {'Parameters': x, 'Idx': outputs["idx"]}
         return returns
 
-def temp_value(num_epochs, temp_base, temp_min, epoch):
+def temp_value(num_epochs, temp_base, temp_min, epoch): # Exponential decrease for the temperature
     temp=temp_base*(temp_min/temp_base)**(epoch/num_epochs)
     return temp 
     
 model=CAE().to(device)
 
+#Hyperparameters for the training + loss calculation
 learning_rate = 1e-3
 batch_size = 64
 epochs = 50
 
 temp_base=10
 temp_min=0.1
-threshold=1 #0.08 for 4 neurons
+threshold=1
 strength=0.1
 
 loss_function = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+#Training loop
 def train_loop(epoch, model, train_loader, optimizer):
     model.train()
     sum_loss=0
     num_batches=len(train_loader)
     for batch, (X, y) in enumerate(train_loader):
         X, y = X.to(device), y.to(device)
-        #print(X.shape,y.shape)
-        temp=temp_value(epochs, temp_base, temp_min, epoch)
+        temp=temp_value(epochs, temp_base, temp_min, epoch) #temperature update
         optimizer.zero_grad()
-        returns = model(X, True, temp, threshold)
-        #reg=returns['REG']
+        returns = model(X, True, temp, threshold) #training of the model
         recon_batch=returns['Parameters']
-        loss = loss_function(recon_batch, y)#+strength*reg
+        loss = loss_function(recon_batch, y)
         sum_loss+=loss
         loss.backward()
         optimizer.step()
         sum_loss/=num_batches
     if epoch%5 ==0:
-        #print(loss_function(recon_batch, y).item(), reg.item())
         print(f"Epoch {epoch}, Average Loss: {sum_loss:.6f}")
 
+#Testing loop
 def test_loop(epoch, dataloader, model, loss_fn, loss_threshold,indices):
     model.eval()
     num_batches = len(dataloader)
@@ -680,16 +693,16 @@ def test_loop(epoch, dataloader, model, loss_fn, loss_threshold,indices):
     with torch.no_grad():
         for X, y in dataloader:
             X, y = X.to(device), y.to(device)
-            temp = temp_value(epochs, temp_base, temp_min, epoch)
-            returns = model(X, False, temp, threshold)
+            temp = temp_value(epochs, temp_base, temp_min, epoch) #temperature update
+            returns = model(X, False, temp, threshold) #testing of the model
+            pred =returns['X_rec']
             pred = returns['Parameters']
             idx = returns['Idx']
             test_loss += loss_fn(pred, y).item()
             for i in range(len(pred)):
-                # Absolute errors for S and D
-                iso_error = abs(pred[i, 0] - y[i, 0])
-                ic_error = abs(pred[i, 1] - y[i, 1])
-                od_error = abs(pred[i, 2] - y[i, 2])
+                iso_error = abs(pred[i, 0] - y[i, 0]) #calculation of the error on vf_iso
+                ic_error = abs(pred[i, 1] - y[i, 1])  #calculation of the error on vf_ic
+                od_error = abs(pred[i, 2] - y[i, 2])  #calculation of the error on OD
                 iso_absolute_errors.append(iso_error)
                 ic_absolute_errors.append(ic_error)
                 od_absolute_errors.append(od_error)
@@ -715,15 +728,17 @@ def test_loop(epoch, dataloader, model, loss_fn, loss_threshold,indices):
             f"vf_ic Absolute Error - Mean: {ic_mean_ae} - Min: {ic_min_ae} - Max: {ic_max_ae}\n"
             f"OD Absolute Error - Mean: {od_mean_ae} - Min: {od_min_ae} - Max: {od_max_ae}\n"
         )
-    return indices, loss_threshold
+    return indices, loss_threshold # return the indices and the new threshold
 
 indices = None
 loss_threshold = float('inf')  # Initialisation
 
+#main loop
 for epoch in range(1, epochs + 1):
     train_loop(epoch, model, train_dataloader, optimizer)
     indices, loss_threshold = test_loop(epoch, test_dataloader, model, loss_function,loss_threshold,indices)
 
+#retrieve pair indice and G-values associated
 indice=np.squeeze(indices)
 indice_1=indice//10
 indice_2=indice%10
@@ -732,6 +747,7 @@ G_2=G[indice_2]
 
 bests_G=[G_1, G_2]
 
+#store the best subset in a csv file 
 chemin = f"./subset_param_2_shells.csv"
 
 with open(chemin, mode='w') as mon_fichier:

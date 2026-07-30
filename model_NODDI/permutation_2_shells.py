@@ -4,6 +4,7 @@ from scipy.special import erf, erfi, lpmv, dawsn
 import csv
 import ast
 
+#retrieve parameter triplets
 with open("./param_2.csv", newline='') as f:
     reader = csv.reader(f)
 
@@ -13,17 +14,20 @@ with open("./param_2.csv", newline='') as f:
 
 _GAMMA = 2.675987e8
 
+#shell directions
 dir_shell_1=30
 dir_shell_2=60
 
 SNR=30
 
+#G values generation
 G_min, G_max= 30e-3, 65e-3  #T/m
-G=np.linspace(G_min, G_max, 10)
+G=np.linspace(G_min, G_max, 10) #evenly spaced
 
+#direction distribution 1
 directions_shell_1=jones(dir_shell_1)
 G_dir_1=G*np.ones((dir_shell_1,1)) #T/m
-
+#direction ditribution 2
 directions_shell_2=jones(dir_shell_2)
 G_dir_2=G*np.ones((dir_shell_2,1)) #T/m
 
@@ -32,7 +36,7 @@ vf_ic=np.array(vf_ic)
 od=np.array(od)
 N=len(od)
 
-#Adaptation from AMICO
+#Adaptation from AMICO classes - NODDI signals
 class NODDIIntraCellular: #Compute the signal in the intra-cellular compartment
     def __init__(self,grad_dirs, G, delta, smalldel):
         self.grad_dirs=grad_dirs
@@ -380,6 +384,7 @@ class NODDIIsotropic: #Compute the signal in the CSF
         difftime = delta.transpose()-smalldel.transpose()/3.0
         return np.exp(-difftime*modQ_Sq*d)
 
+#Acquisition parameters
 d_par=1.7e-3
 d_iso=3.0e-3
 delta=37.8e-3
@@ -389,7 +394,7 @@ smalldel=17.5e-3
 smalldel_dir_1=smalldel*np.ones((dir_shell_1,1)) #s
 smalldel_dir_2=smalldel*np.ones((dir_shell_2,1)) #s
 
-def noddi_signal(params, ic_model, ec_model, iso_model):
+def noddi_signal(params, ic_model, ec_model, iso_model): #compute the total signal
     vol_iso, vol_ic, od = params
     signal_ic = ic_model.get_signal(d_par, od)
     signal_ec = ec_model.get_signal(d_par, od, vol_ic)
@@ -401,6 +406,7 @@ def noddi_signal(params, ic_model, ec_model, iso_model):
     )
     return np.asarray(S).ravel()
 
+#signals on N_directions 1 depending of G value 
 ic_model_1=[]
 ec_model_1=[]
 iso_model_1=[]
@@ -409,7 +415,7 @@ for j in range(10):
     ic_model_1.append(NODDIIntraCellular(directions_shell_1, Gj, delta_dir_1, smalldel_dir_1))
     ec_model_1.append(NODDIExtraCellular(directions_shell_1, Gj, delta_dir_1, smalldel_dir_1))
     iso_model_1.append(NODDIIsotropic(directions_shell_1, Gj, delta_dir_1, smalldel_dir_1))
-
+#signals on N_directions 2 depending of G value 
 ic_model_2=[]
 ec_model_2=[]
 iso_model_2=[]
@@ -419,11 +425,12 @@ for k in range(10):
     ec_model_2.append(NODDIExtraCellular(directions_shell_2, Gk, delta_dir_2, smalldel_dir_2))
     iso_model_2.append(NODDIIsotropic(directions_shell_2, Gk, delta_dir_2, smalldel_dir_2))
 
+#signal matrix on N_directions 1
 X_1=np.zeros((N, 10, dir_shell_1))
 for i in range(N):
     for j in range(10):
         X_1[i][j]=noddi_signal((vf_iso[i],vf_ic[i],od[i]),ic_model_1[j], ec_model_1[j], iso_model_1[j])
-
+#signal matrix on N_directions 2
 X_2=np.zeros((N, 10, dir_shell_2))
 for i in range(N):
     for j in range(10):
@@ -433,12 +440,12 @@ X=[]
 for i in range(10):
     for j in range(10):
         if j!=i:
-            X.append(np.concatenate((X_1[:,i],X_2[:,j]),1))
+            X.append(np.concatenate((X_1[:,i],X_2[:,j]),1)) #concatenation -> (345,90,90)
 X = np.stack(X)
-X = X.transpose(1,0,2)
+X = X.transpose(1,0,2) #(90,345,90)
 print(X.shape)
 
-def distance(mat):
+def distance(mat): #function to compute the distance matrix between all 345 triplets for each value of G
     size, N, nb_dir = len(mat), len(mat[0]), len(mat[0][0])
     distance_matrices = []
     for k in range(size):
@@ -451,7 +458,7 @@ def distance(mat):
     distance_matrix = np.stack(distance_matrices, axis=0)
     return distance_matrix
 
-def score(distance_matrix, SNR):
+def score(distance_matrix, SNR): #function to compute the score of each value of G ie the number of signal pairs it can discriminate
     size, N, nb_dir= len(distance_matrix), len(distance_matrix[0]), len(distance_matrix[0][0][0])
     score_mat = np.array([])
     for k in range(size):
@@ -468,23 +475,23 @@ def score(distance_matrix, SNR):
 distance_matrix=distance(X)
 print(f"We compute the distance matrix.")
 
-def permutation(distance_matrix, nb_b, nb_rep):
+def permutation(distance_matrix, nb_b, nb_rep): #function to obtain an optimal subset of gradient strength by permutation
     best_subset_seen = np.array([])
     best_nb_d = 0
     SNR = 25
     for i in range(nb_rep):
         print(f"\trepetition number {i+1}")
-        subset = np.random.choice(90, nb_b, replace=False)
+        subset = np.random.choice(90, nb_b, replace=False) #random choice of subset
         selection = distance_matrix[subset]
         score_mat = np.array([])
         changed = True
         while changed:
             score_mat = score(selection,SNR)
-            weakest_b = subset[np.argmin(score_mat)]
+            weakest_b = subset[np.argmin(score_mat)] #G value with the lowest score 
             nb_weakest = np.sum(score_mat)
             next_best_b = weakest_b
             nb_next_best = 0
-            while (nb_next_best < nb_weakest and next_best_b < len(distance_matrix) - 1):
+            while (nb_next_best < nb_weakest and next_best_b < len(distance_matrix) - 1): #find a better G value (highest score) and insert it in the subset
                 next_best_b =  next_best_b + 1
                 new_selection = selection.copy()
                 new_selection[np.argmin(score_mat)] = distance_matrix[next_best_b]
@@ -502,10 +509,10 @@ def permutation(distance_matrix, nb_b, nb_rep):
     return best_subset_seen,best_nb_d
 
 nb_G=1
-best_subset,best_nb=permutation(distance_matrix, nb_G, 6)
+best_subset,best_nb=permutation(distance_matrix, nb_G, 6) #6 repetitions 
 
+#retrieve the subset indice and the G values associated
 indice=np.squeeze(best_subset)
-print(indice)
 
 indice_1=indice//10
 indice_2=indice%10
@@ -514,6 +521,7 @@ G_2=G[indice_2]
 
 bests_G=[G_1, G_2]
 
+#best subset in a csv file
 chemin = f"./subset_permut_2_shells.csv"
 
 with open(chemin, mode='w') as mon_fichier:
@@ -522,6 +530,3 @@ with open(chemin, mode='w') as mon_fichier:
                                     quoting=csv.QUOTE_MINIMAL)
 
     mon_fichier_ecrire.writerow(bests_G)
-
-
-print(best_subset, best_nb)

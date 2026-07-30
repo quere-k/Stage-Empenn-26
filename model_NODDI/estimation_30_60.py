@@ -9,28 +9,29 @@ import ast
 
 _GAMMA = 2.675987e8
 
-with open("./subset_param_30_1.csv", newline="") as mon_fichier:
+#retrieve subset from each method
+with open("./subset_permut_2_shells.csv", newline="") as mon_fichier:
     mon_fichier_reader = csv.reader(mon_fichier, delimiter=",")
-    G_30 = [[float(x) for x in row] for row in mon_fichier_reader]
+    G = [[float(x) for x in row] for row in mon_fichier_reader]
 
-with open("./subset_param_60_1.csv", newline="") as mon_fichier:
-    mon_fichier_reader = csv.reader(mon_fichier, delimiter=",")
-    G_60 = [[float(x) for x in row] for row in mon_fichier_reader]
+G=np.squeeze(G)
 
-G_30=np.squeeze(G_30)
+#G value associated to N_directions 1
+G_30=G[0]
 directions_30=jones(30)
 G_30_dir=G_30*np.ones((30,1)) #T/m
 
-G_60=np.squeeze(G_60)
+#G value associated to N_directions 2
+G_60=G[1]
 directions_60=jones(60)
 G_60_dir=G_60*np.ones((60,1)) #T/m
 
 directions=np.concatenate([directions_30,directions_60])
 G_dir=np.concatenate([G_30_dir,G_60_dir])
-print(G_dir.shape)
 nb_directions=90
 nb_subset=G_30.size
 
+#retrieve parameter triplets
 with open("./param_2.csv", newline='') as f:
     reader = csv.reader(f)
 
@@ -38,7 +39,7 @@ with open("./param_2.csv", newline='') as f:
     ics  = [ast.literal_eval(x) for x in next(reader)]
     ods  = [ast.literal_eval(x) for x in next(reader)]
 
-nb_param=11
+nb_param=80
 N=len(ods)
 idx=np.linspace(0,N-1,nb_param,dtype=int)
 isos = np.array(isos)
@@ -48,6 +49,7 @@ iso=isos[idx]
 ic=ics[idx]
 od=ods[idx]
 
+#Adaptation of AMICO classes - NODDI signals
 class NODDIIntraCellular: #Compute the signal in the intra-cellular compartment
     def __init__(self,grad_dirs, G, delta, smalldel):
         self.grad_dirs=grad_dirs
@@ -395,6 +397,7 @@ class NODDIIsotropic: #Compute the signal in the CSF
         difftime = delta.transpose()-smalldel.transpose()/3.0
         return np.exp(-difftime*modQ_Sq*d)
 
+#Acquisition parameters
 d_par=1.7e-3
 d_iso=3.0e-3
 delta=37.8e-3
@@ -410,10 +413,8 @@ for j in range(nb_subset):
     ec_model.append(NODDIExtraCellular(directions, Gj, delta_dir, smalldel_dir))
     iso_model.append(NODDIIsotropic(directions, Gj, delta_dir, smalldel_dir))
 
-def noddi_signal(params, ic_model, ec_model, iso_model):
+def noddi_signal(params, ic_model, ec_model, iso_model): #computation of the total signal
     """
-    Compute NODDI signal for one voxel/subset
-    
     params:
         params[0] = vol_iso
         params[1] = vol_ic
@@ -431,10 +432,7 @@ def noddi_signal(params, ic_model, ec_model, iso_model):
     return np.asarray(S).ravel()
 
 
-def residuals(params, measured_signal, ic_model, ec_model, iso_model):
-    """
-    Residual vector for least_squares
-    """
+def residuals(params, measured_signal, ic_model, ec_model, iso_model): #residuals for the least squares function
     predicted = noddi_signal(
         params,
         ic_model,
@@ -445,6 +443,7 @@ def residuals(params, measured_signal, ic_model, ec_model, iso_model):
 
 SNR=30
 
+#signal matrix only on the selectd subset
 mat = np.zeros((nb_param,nb_subset,nb_directions))
 for i in range(nb_param):
     for j in range(nb_subset):
@@ -453,13 +452,14 @@ amplitude = np.mean(mat,axis=1)/SNR
 noise = np.random.normal(0, amplitude[:, None], (nb_param, nb_subset, nb_directions))
 mat=mat+noise
 
-estimated = np.zeros((nb_param, nb_subset, 3)) #(11,30,3) ou (11,60,3)
+estimated = np.zeros((nb_param, nb_subset, 3)) #(11,1,3)
 
+#least squares function to estimate parameters using the selected subset
 for i in range(nb_param):
     for j in range(nb_subset):
         result = least_squares(
             residuals,
-            x0=[0.1, 0.6, 0.5],
+            x0=[0.1, 0.6, 0.5], #first estimation
             args=(
                 mat[i][j],
                 ic_model[j],
@@ -470,6 +470,7 @@ for i in range(nb_param):
         )
         estimated[i][j] = result.x
 
+#compute absolute errors between ground truth and estimated
 estimated=np.array(estimated) 
 vol_iso=np.mean(estimated[:,:,0],axis=1)
 vol_ic=np.mean(estimated[:,:,1],axis=1)
@@ -477,6 +478,37 @@ od_est=np.mean(estimated[:,:,2],axis=1)
 error_iso=np.abs(vol_iso-iso)/iso
 error_ic=np.abs(vol_ic-ic)/ic
 error_od=np.abs(od_est-od)/od
-print(100*error_iso)
-print(100*error_ic)
-print(100*error_od)
+#compute statistics - mean and standard deviation
+mean_iso=np.mean(error_iso)
+std_iso=np.std(error_iso)
+mean_ic=np.mean(error_ic)
+std_ic=np.std(error_ic)
+mean_od=np.mean(error_od)
+std_od=np.std(error_od)
+
+print(mean_iso, std_iso)
+print(mean_ic, std_ic)
+print(mean_od, std_od)
+
+#plot the statistics
+labels = ['ISO', 'IC', 'OD']
+data = [error_iso, error_ic, error_od]
+means = [np.mean(d) for d in data]
+stds = [np.std(d) for d in data]
+
+plt.figure(figsize=(5,6))
+plt.bar(labels, means, yerr=stds, capsize=6,
+        color='lightsteelblue', edgecolor='black', label="Mean ± SD")
+for i, d in enumerate(data):
+    x = np.random.normal(i, 0.04, len(d))  # a little gap to see each value
+    plt.scatter(x, d, color='red', alpha=0.7, label=f'Individual errors {labels[i]}')
+
+plt.ylabel("Relative error")
+plt.xlabel("Parameters")
+plt.ylim(-0.2,1.5)
+plt.title("Statistics of the estimates with 2 shells (n=80)")
+plt.grid(axis='y', linestyle='--', alpha=0.5)
+plt.legend()
+
+plt.tight_layout()
+plt.show()

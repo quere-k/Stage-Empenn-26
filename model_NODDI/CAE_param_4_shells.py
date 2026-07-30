@@ -10,6 +10,7 @@ import csv
 
 _GAMMA = 2.675987e8
 
+#Class to create datasets
 class Signals(Dataset):
     def __init__(self,X,Y):
         self.X=X
@@ -23,6 +24,7 @@ class Signals(Dataset):
         y=self.Y[idx]
         return x,y
 
+#Hyperparameters initialization
 N_train=3000
 N_test=1000
 N_input=20
@@ -31,19 +33,22 @@ N_hidden_layer=2
 
 SNR=30
 
+#shell directions
 nb_directions=60
 directions=jones(nb_directions)
 
+#Generation of the datasets
+#Range of parameters
 G_min, G_max= 30e-3, 65e-3  #T/m
-G=np.linspace(G_min, G_max, N_input)
+G=np.linspace(G_min, G_max, N_input) #evenly spaced
 G_dir=G*np.ones((nb_directions,1)) #T/m
 
-vol_iso = np.random.rand(1, N_train).reshape(N_train, 1)
-vol_ic = np.random.rand(1, N_train).reshape(N_train, 1)
+vol_iso = np.random.rand(1, N_train).reshape(N_train, 1) #randomly generated
+vol_ic = np.random.rand(1, N_train).reshape(N_train, 1) #randomly generated
 od_min, od_max=0.001, 0.99
-od = od_min + (od_max-od_min)*np.random.rand(1,N_train).reshape(N_train,1)
+od = od_min + (od_max-od_min)*np.random.rand(1,N_train).reshape(N_train,1) #randomly generated
 
-#Adaptation from AMICO
+#Adaptation from AMICO - NODDI signals
 class NODDIIntraCellular: #Compute the signal in the intra-cellular compartment
     def __init__(self,grad_dirs, G, delta, smalldel):
         self.grad_dirs=grad_dirs
@@ -391,7 +396,7 @@ class NODDIIsotropic: #Compute the signal in the CSF
         difftime = delta.transpose()-smalldel.transpose()/3.0
         return np.exp(-difftime*modQ_Sq*d)
 
-def signal(G_dir, vol_iso, vol_ic, od, nb_directions):
+def signal(G_dir, vol_iso, vol_ic, od, nb_directions): #compute the total signal
     size=len(G_dir[0])
     signals=np.zeros((size,nb_directions))
     delta=37.8e-3
@@ -412,6 +417,7 @@ def signal(G_dir, vol_iso, vol_ic, od, nb_directions):
         signals[i]=signal[:]
     return signals
 
+#Signal matrix N_train*N_input*N_directions
 A=np.zeros((N_train, N_input, nb_directions))
 for i in range(N_train):
     A[i]=signal(G_dir,vol_iso[i].item(),vol_ic[i].item(),od[i].item(),nb_directions)
@@ -421,6 +427,7 @@ sigma=1/SNR
 noise=torch.normal(0,sigma, size=(N_train,N_input, nb_directions))
 X = A + noise
 
+#Parameters matrix N_train*N_parameters*N_directions
 Y=torch.ones(N_train,3,nb_directions)
 vol_iso=torch.tensor(vol_iso).unsqueeze(-1) 
 vol_ic=torch.tensor(vol_ic).unsqueeze(-1) 
@@ -464,9 +471,11 @@ testing_data=Signals(X,Y)
 train_dataloader = DataLoader(training_data, batch_size=64, shuffle=True)
 test_dataloader = DataLoader(testing_data, batch_size=64, shuffle=True)
 
+#Use CPU when available
 device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
 print(f"Using {device} device")
 
+#Class for the construction of the concrete selection layer
 class ConcreteLayer(nn.Module):
     def __init__(self, num_inputs, num_features, pi_dropout=0.0):
         super().__init__()
@@ -477,7 +486,7 @@ class ConcreteLayer(nn.Module):
         #Initialization
         logits_init=torch.rand(num_features,num_inputs)
         logits_init=logits_init/torch.sum(logits_init)
-        self.logits=nn.Parameter(logits_init, requires_grad=True) #Learnable for the model
+        self.logits=nn.Parameter(logits_init, requires_grad=True) #make logits learnable for the model
         self.pi_dropout=nn.Dropout(pi_dropout) #Desactivate inputs with pi=0.0, initialize Dropout layer
     
     def get_pi(self, ):
@@ -501,33 +510,34 @@ class ConcreteLayer(nn.Module):
         
         return selector_matrix, reg
     
-    def regularization(self, logits, threshold):
+    def regularization(self, logits, threshold): # Regularization function (avoid multiple selection)
         num_inputs=self.num_inputs
         pi=F.softmax(logits, dim=1)
         L=torch.zeros(num_inputs, device=device)
         for i in range(num_inputs):
-            L[i]=F.relu(torch.sum(pi[:,i])-threshold)
+            L[i]=F.relu(torch.sum(pi[:,i])-threshold) #Probability sum for a same input over selection neurons
         reg=torch.sum(L)
         return reg
 
     def forward(self, x, random, temperature, threshold, hard=False):
         selector,reg=self.sample_matrix(temperature, random, threshold, hard)
         x = x.to(torch.float32)
-        x = x.transpose(1, 2)
-        x=F.linear(x,selector)
+        x = x.transpose(1, 2) #N_train*N_directions*N_input
+        x=F.linear(x,selector) #selection over G values
         outputs= {"latent": x, "reg": reg, "idx": torch.argmax(selector, dim=1)}
         return outputs
 
+# Class for the construction of the concrete auto-encoder = selection layer + decoder
 class CAE(nn.Module):
     def __init__(self, input_dim=N_input, features=N_features, n_hidden_layers=N_hidden_layer, dropout=0.0):
         super().__init__()
         indices2=np.arange(2+n_hidden_layers)
         data_indices2=np.array([indices2[0], indices2[-1]])
         data2=np.array([features,3])
-        layer_sizes=np.interp(indices2, data_indices2, data2).astype(int)
+        layer_sizes=np.interp(indices2, data_indices2, data2).astype(int) # 1D linear interpolation for hidden neurons
         n_layers=len(layer_sizes)
         layers=[]
-        for i in range(1, n_layers):
+        for i in range(1, n_layers): #Contruction of the hidden layers
             if i==n_layers-1:
                 layers.append(nn.Linear(layer_sizes[i-1],layer_sizes[i]))
                 layers.append(nn.Softplus())
@@ -538,44 +548,44 @@ class CAE(nn.Module):
         print(layer_sizes,layers)
         self.encoder=ConcreteLayer(input_dim, features)
         self.decoder=nn.Sequential(*layers)
-        #self.normalization=Normalization(input_dim, features)
 
     def forward(self, x, random, temperature, threshold):
-        outputs=self.encoder(x, random, temperature, threshold)
-        x=self.decoder(outputs["latent"])
-        #x=self.normalization(x)
-        x=x.transpose(1, 2)
+        outputs=self.encoder(x, random, temperature, threshold) #concrete selection layer
+        x=self.decoder(outputs["latent"]) #decoder
+        x=x.transpose(1, 2) #N_train*N_input*N_directions
         reg=outputs["reg"]
         returns = {'Parameters': x, 'REG': reg, 'Idx': outputs["idx"]}
         return returns
 
-def temp_value(num_epochs, temp_base, temp_min, epoch):
+def temp_value(num_epochs, temp_base, temp_min, epoch):  # Exponential decrease for the temperature
     temp=temp_base*(temp_min/temp_base)**(epoch/num_epochs)
     return temp 
     
 model=CAE().to(device)
 
+#Hyperparameters for the training + loss calculation
 learning_rate = 1e-3
 batch_size = 64
 epochs = 50
 
 temp_base=10
 temp_min=0.1
-threshold=0.08
+threshold=0.08 #more regularization
 strength=0.1
 
 loss_function = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+#Training loop
 def train_loop(epoch, model, train_loader, optimizer):
     model.train()
     sum_loss=0
     num_batches=len(train_loader)
     for batch, (X, y) in enumerate(train_loader):
         X, y = X.to(device), y.to(device)
-        temp=temp_value(epochs, temp_base, temp_min, epoch)
+        temp=temp_value(epochs, temp_base, temp_min, epoch) #temperature update
         optimizer.zero_grad()
-        returns = model(X, True, temp, threshold)
+        returns = model(X, True, temp, threshold) #training of the model
         reg=returns['REG']
         recon_batch=returns['Parameters']
         loss = loss_function(recon_batch, y)+strength*reg
@@ -587,6 +597,7 @@ def train_loop(epoch, model, train_loader, optimizer):
         print(loss_function(recon_batch, y).item(), reg.item())
         print(f"Epoch {epoch}, Average Loss: {sum_loss:.6f}")
 
+#Testing loop
 def test_loop(epoch, dataloader, model, loss_fn, loss_threshold,indices):
     model.eval()
     size = len(dataloader.dataset)
@@ -598,16 +609,15 @@ def test_loop(epoch, dataloader, model, loss_fn, loss_threshold,indices):
     with torch.no_grad():
         for X, y in dataloader:
             X, y = X.to(device), y.to(device)
-            temp = temp_value(epochs, temp_base, temp_min, epoch)
-            returns = model(X, False, temp, threshold)
+            temp = temp_value(epochs, temp_base, temp_min, epoch) #temperature update
+            returns = model(X, False, temp, threshold) #testing of the model
             pred = returns['Parameters']
             idx = returns['Idx']
             test_loss += loss_fn(pred, y).item()
             for i in range(len(pred)):
-                # Absolute errors for S and D
-                iso_error = abs(pred[i, 0] - y[i, 0])
-                ic_error = abs(pred[i, 1] - y[i, 1])
-                od_error = abs(pred[i, 2] - y[i, 2])
+                iso_error = abs(pred[i, 0] - y[i, 0]) #calculation of the error on vf_iso
+                ic_error = abs(pred[i, 1] - y[i, 1])  #calculation of the error on vf_ic
+                od_error = abs(pred[i, 2] - y[i, 2])  #calculation of the error on od
                 iso_absolute_errors.append(iso_error)
                 ic_absolute_errors.append(ic_error)
                 od_absolute_errors.append(od_error)
@@ -633,19 +643,21 @@ def test_loop(epoch, dataloader, model, loss_fn, loss_threshold,indices):
             f"vf_ic Absolute Error - Mean: {ic_mean_ae} - Min: {ic_min_ae} - Max: {ic_max_ae}\n"
             f"OD Absolute Error - Mean: {od_mean_ae} - Min: {od_min_ae} - Max: {od_max_ae}\n"
         )
-    return indices, loss_threshold
+    return indices, loss_threshold # return the indices and the new threshold
 
 indices = None
 loss_threshold = float('inf')  # Initialisation
 
+#main loop
 for epoch in range(1, epochs + 1):
     train_loop(epoch, model, train_dataloader, optimizer)
     indices, loss_threshold = test_loop(epoch, test_dataloader, model, loss_function,loss_threshold,indices)
 
+#retrieve selected indices and G-values associated
 indices=np.array(indices)
-
 best_G=G[indices]
 
+#store the best subset in a csv file 
 chemin = f"./subset_param_{nb_directions}_{N_features}.csv"
 
 with open(chemin, mode='w') as mon_fichier:

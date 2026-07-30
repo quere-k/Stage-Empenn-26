@@ -6,13 +6,16 @@ import csv
 
 _GAMMA = 2.675987e8
 
+#shell directions
 nb_directions=30
 directions=jones(nb_directions)
 
+#Range of G values
 G_min, G_max= 30e-3, 65e-3  #T/m
-G=np.linspace(G_min, G_max, 200)
+G=np.linspace(G_min, G_max, 200) #evenly spaced
 G_dir=G*np.ones((nb_directions,1)) #T/m
 
+#Function to display selected cubes in plt
 def display_cubes(cubes, ax):
     for cube in cubes:
         axes = ["iso", "ic", "od"]
@@ -25,6 +28,7 @@ def display_cubes(cubes, ax):
         ax.voxels(*corners, np.ones((1, 1, 1), dtype=bool), 
                   facecolors="r", edgecolors="k", alpha=0.5)
 
+#From each cube selected, make the parameter triplet the barycenter
 def create_param_from_cube(cube):
     od = 0.5 * (cube["od_min"] + cube["od_max"])
     iso = 0.5 * (cube["iso_min"] + cube["iso_max"])
@@ -377,7 +381,7 @@ class NODDIIsotropic: #Compute the signal in the CSF
         difftime = delta.transpose()-smalldel.transpose()/3.0
         return np.exp(-difftime*modQ_Sq*d)
 
-def signal(G_dir, vol_iso, vol_ic, od, nb_directions):
+def signal(G_dir, vol_iso, vol_ic, od, nb_directions): #Compute the total signal
     size=len(G_dir[0])
     signals=np.zeros((size,nb_directions))
     delta=37.8e-3
@@ -399,13 +403,15 @@ def signal(G_dir, vol_iso, vol_ic, od, nb_directions):
         signals[i]=signal[:]
     return signals
 
+#Initial parameter cube
 cubes = [{"od_min": 1e-3, "od_max": 1, 
           "iso_min": 0.0, "iso_max": 1.0,
           "ic_min": 0.0, "ic_max": 1.0, "level": 0}]
 recursion_level = 5
 snr = 25
 threshold = 1.0 / snr
-for recursion in range(recursion_level):
+#recursion function
+for recursion in range(recursion_level): #from 0 to 5
     print(f"\tRecursion level {recursion}: {len(cubes)} models")
     for parameter in ["iso", "ic", "od"]:
         new_cubes = []
@@ -416,14 +422,14 @@ for recursion in range(recursion_level):
             cube1 = cube.copy()
             cube1[f"{parameter}_max"] = param_med
             cube1["level"] = recursion
-            param1 = create_param_from_cube(cube1)
+            param1 = create_param_from_cube(cube1) #barycenter 1
             cube2 = cube.copy()
-            cube2[f"{parameter}_min"] = param_med
+            cube2[f"{parameter}_min"] = param_med 
             cube2["level"] = recursion
-            param2 = create_param_from_cube(cube2)
-            signal1 = signal(G_dir, param1[1], param1[2], param1[0], nb_directions)
-            signal2 = signal(G_dir, param2[1], param2[2], param2[0], nb_directions)
-            differences = np.abs(signal1 - signal2)
+            param2 = create_param_from_cube(cube2) #barycenter 1
+            signal1 = signal(G_dir, param1[1], param1[2], param1[0], nb_directions) #signal with parameter 1
+            signal2 = signal(G_dir, param2[1], param2[2], param2[0], nb_directions) #signal with parameter 2
+            differences = np.abs(signal1 - signal2) #distance between signals, over N_directions
             if np.any(differences > threshold):
                 new_cubes.append(cube1)
                 new_cubes.append(cube2)
@@ -443,9 +449,6 @@ for i in range(nb_models):
     for j in range(i + 1, nb_models):
         distances[i, j] = np.max(np.abs(signals[i] - signals[j]))
         distances[j, i] = distances[i, j]
-#fig = plt.figure()
-#plt.imshow(distances > threshold)
-
 
 print(f"finally we display the {len(cubes)} cubes.")
 print(f"(there were {8**recursion_level} possible cubes).")
@@ -462,6 +465,7 @@ for cube in cubes:
 
 print(len(isos), len(ics), len(ods))
 
+# plot the selected cubes
 fig = plt.figure()
 ax = fig.add_subplot(111, projection="3d")
 #ax.scatter(isos, ics, ods)
@@ -475,6 +479,7 @@ ax.set_zticks([0, 0.5, 1.0])
 ax.grid(False)
 plt.show()
 
+#selected triplets in a csv file
 chemin = "./param_2.csv"
 
 with open(chemin, mode='w') as mon_fichier:

@@ -4,6 +4,7 @@ from scipy.special import erf, erfi, lpmv, dawsn
 import csv
 import ast
 
+#retrieve parameter triplets
 with open("./param_2.csv", newline='') as f:
     reader = csv.reader(f)
 
@@ -13,18 +14,21 @@ with open("./param_2.csv", newline='') as f:
 
 _GAMMA = 2.675987e8
 
-nb_directions=60
+#shell directions
+nb_directions=30
 directions=jones(nb_directions)
 
 vf_iso=np.array(vf_iso)
 vf_ic=np.array(vf_ic)
 od=np.array(od)
 
+#G values generation
 G_min, G_max= 30e-3, 65e-3  #T/m
-G=np.linspace(G_min, G_max, 20)
+G=np.linspace(G_min, G_max, 20) #evenly spaced
 G_dir=G*np.ones((nb_directions,1)) #T/m
 kappa=1/np.tan((np.pi*od)/2)
 
+#AMICO classes - NODDI signals
 class NODDIIntraCellular: #Compute the signal in the intra-cellular compartment
     def __init__(self,grad_dirs, G, delta, smalldel):
         self.grad_dirs=grad_dirs
@@ -370,6 +374,7 @@ class NODDIIsotropic: #Compute the signal in the CSF
         difftime = delta.transpose()-smalldel.transpose()/3.0
         return np.exp(-difftime*modQ_Sq*d)
 
+#Acquisition parameters
 d_par=1.7e-3
 d_iso=3.0e-3
 delta=37.8e-3
@@ -385,10 +390,8 @@ for j in range(20):
     ec_model.append(NODDIExtraCellular(directions, Gj, delta_dir, smalldel_dir))
     iso_model.append(NODDIIsotropic(directions, Gj, delta_dir, smalldel_dir))
 
-def signal(params, ic_model, ec_model, iso_model):
+def signal(params, ic_model, ec_model, iso_model): #compute the total signal
     """
-    Compute NODDI signal for one voxel/subset
-    
     params:
         params[0] = vol_iso
         params[1] = vol_ic
@@ -405,13 +408,14 @@ def signal(params, ic_model, ec_model, iso_model):
     )
     return np.asarray(S).transpose(0,1)
 
+#signal matrix (20,345,30)
 N=len(od)
 mat = np.zeros((20,N,nb_directions))
 for i in range(N):
     for j in range(20):
         mat[j][i] = signal((vf_iso[i],vf_ic[i],kappa[i]), ic_model[j], ec_model[j], iso_model[j])
 
-def distance(mat):
+def distance(mat): #function to compute the distance matrix between all 345 triplets for each value of G
     size, N, nb_dir = len(mat), len(mat[0]), len(mat[0][0])
     distance_matrices = []
     for k in range(size):
@@ -424,7 +428,7 @@ def distance(mat):
     distance_matrix = np.stack(distance_matrices, axis=0)
     return distance_matrix
 
-def score(distance_matrix, SNR):
+def score(distance_matrix, SNR): #function to compute the score of each value of G ie the number of signal pairs it can discriminate
     size, N, nb_dir= len(distance_matrix), len(distance_matrix[0]), len(distance_matrix[0][0][0])
     score_mat = np.array([])
     for k in range(size):
@@ -441,23 +445,23 @@ def score(distance_matrix, SNR):
 distance_matrix=distance(mat)
 print(f"We compute the distance matrix.")
 
-def permutation(distance_matrix, nb_b, nb_rep):
+def permutation(distance_matrix, nb_b, nb_rep): #function to obtain an optimal subset of gradient strength by permutation
     best_subset_seen = np.array([])
     best_nb_d = 0
     SNR = 25
     for i in range(nb_rep):
         print(f"\trepetition number {i+1}")
-        subset = np.random.choice(20, nb_b, replace=False)
+        subset = np.random.choice(20, nb_b, replace=False) #random choice of subset
         selection = distance_matrix[subset]
         score_mat = np.array([])
         changed = True
         while changed:
             score_mat = score(selection,SNR)
-            weakest_b = subset[np.argmin(score_mat)]
+            weakest_b = subset[np.argmin(score_mat)] #G value with the lowest score 
             nb_weakest = np.sum(score_mat)
             next_best_b = weakest_b
             nb_next_best = 0
-            while (nb_next_best < nb_weakest and next_best_b < len(distance_matrix) - 1):
+            while (nb_next_best < nb_weakest and next_best_b < len(distance_matrix) - 1): #find a better G value (highest score) and insert it in the subset
                 next_best_b =  next_best_b + 1
                 new_selection = selection.copy()
                 new_selection[np.argmin(score_mat)] = distance_matrix[next_best_b]
@@ -475,21 +479,11 @@ def permutation(distance_matrix, nb_b, nb_rep):
     return best_subset_seen,best_nb_d
 
 nb_G=4
-best_subset,best_nb=permutation(distance_matrix, nb_G, 6)
-
+best_subset,best_nb=permutation(distance_matrix, nb_G, 6) #6 repetitions 
+#retrieve the subset indice and the G values associated
 best_G=G[best_subset]
 
-def b_value(G):
-    delta=37.8e-3
-    smalldel=17.5e-3
-    modQ = _GAMMA*smalldel*G
-    modQ_Sq = np.power(modQ,2)
-    difftime = delta-smalldel/3.0
-    return difftime*modQ_Sq/np.power(10,6)
-
-b_val=b_value(best_G)
-print(b_val)
-
+#best subset in a csv file
 chemin = f"./subset_permut_{nb_directions}_{nb_G}.csv"
 
 with open(chemin, mode='w') as mon_fichier:
@@ -498,5 +492,3 @@ with open(chemin, mode='w') as mon_fichier:
                                     quoting=csv.QUOTE_MINIMAL)
 
     mon_fichier_ecrire.writerow(best_G)
-
-#print(best_subset, best_nb)
