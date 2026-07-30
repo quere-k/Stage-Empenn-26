@@ -4,6 +4,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import csv
 
+"""
+Function to create an adaptative distribution of parameter triplets using recursion
+Distribution with maximal separability for the signals
+NODDI signals with different directions
+"""
+
 _GAMMA = 2.675987e8
 
 #shell directions

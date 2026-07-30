@@ -10,6 +10,14 @@ import numpy as np
 import math as m
 import matplotlib.pyplot as plt
 
+"""
+Function for the training and the testing of a concrete autoencoder (selection layer + decoder) to predict dMRI signals
+Loss calculated between the ground truth signals and the etimated ones
+Inputs = G values with the same number of directions
+4 values selected
+Based on the NODDI model
+"""
+
 _GAMMA = 2.675987e8
 
 #Class to create datasets

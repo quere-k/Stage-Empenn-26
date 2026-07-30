@@ -3,6 +3,12 @@ import matplotlib.pyplot as plt
 import scipy.optimize
 import csv
 
+"""
+Function to evaluate the efficiency of the CAE and dictionary-based method
+Estimation of the parameters from the selected subset using a least squares method
+Comparison using statistics
+"""
+
 #collect the indices of the b-subset from a csv file
 with open("./subset.csv", newline="") as mon_fichier:
     mon_fichier_reader = csv.reader(mon_fichier, delimiter=",")

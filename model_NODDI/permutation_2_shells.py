@@ -4,6 +4,13 @@ from scipy.special import erf, erfi, lpmv, dawsn
 import csv
 import ast
 
+""" 
+Function to obtain an optimized subset of acquisitions using permutation
+Signals are associated as pairs of G values with different numbers of directions
+Only one pair is selected
+Based on the NODDI model
+"""
+
 #retrieve parameter triplets
 with open("./param_2.csv", newline='') as f:
     reader = csv.reader(f)

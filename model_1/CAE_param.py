@@ -6,6 +6,13 @@ from torch.utils.data import DataLoader
 import numpy as np
 import csv
 
+"""
+Function for the training and testing of a concrete selection encoder (selection layer + decoder) for the prediction of signal parameters, with a normalization layer.
+Loss calculated between the estimated parameters and the ground truth parameters used for the signal generation
+Indices retrieved to obatin a optimized subset of acquisitions 
+Based on the diffusion equation
+"""
+
 #Class to create datasets
 class Signals(Dataset):
     def __init__(self,X,Y):

@@ -1,6 +1,12 @@
 import numpy as np 
 import csv
 
+"""
+Selection of an optimized subset of acquisitions using permutation
+Parameter distribution using recursion to optimize the separability of the signals
+Based on the diffusion equation 
+"""
+
 #Generation of the parameters 
 b_min, b_max = 10.0, 2000.0 #s/mm^2
 b = np.linspace(b_min,b_max,200) #evenly spaced

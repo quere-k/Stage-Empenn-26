@@ -7,6 +7,13 @@ from scipy.special import erf, erfi, lpmv, dawsn
 import csv
 import ast
 
+"""
+Function to evaluate the efficiency of each method (CAE and dictionary)
+Estimation of the signal parameters using the least squares method 
+Signals are only computed on the selected subset : 2 G values, one associated with 30 directions and one with 60
+Comparison using absolute errors and statistics
+"""
+
 _GAMMA = 2.675987e8
 
 #retrieve subset from each method

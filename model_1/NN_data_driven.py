@@ -5,6 +5,12 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 
+"""
+Function for the training and testing of an encoder-decoder for the prediction of dMRI signals.
+Loss calculated between the estimated signals and the ground truth signals 
+Based on the diffusion equation
+"""
+
 #Class to create datasets
 class Signals(Dataset):
     def __init__(self,X,Y):

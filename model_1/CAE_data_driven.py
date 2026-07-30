@@ -7,6 +7,13 @@ import csv
 import numpy as np
 # import matplotlib.pyplot as plt
 
+"""
+Function for the training and testing of a concrete selection encoder (selection layer + decoder) for the prediction of dMRI signals.
+Loss calculated between the estimated signals and the ground truth signals 
+Indices retrieved to obatin a optimized subset of acquisitions 
+Based on the diffusion equation
+"""
+
 #Class to create datasets
 class Signals(Dataset):
     def __init__(self,X,Y):

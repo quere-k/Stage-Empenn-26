@@ -8,6 +8,14 @@ from scipy.special import erf, erfi, lpmv, dawsn
 import numpy as np
 import csv
 
+"""
+Function for the training and the testing of a concrete autoencoder (selection layer + decoder) to predict parameters : vf_iso, vf_ic and OD
+Loss calculated between the ground truth parameters and the etimated ones
+Inputs = pairs of G values with different numbers of directions associated
+Only one pair selected
+Based on the NODDI model
+"""
+
 _GAMMA = 2.675987e8
 
 #Class to create datasets
