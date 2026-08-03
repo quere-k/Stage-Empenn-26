@@ -631,7 +631,7 @@ indices=np.array(indices)
 best_G=G[indices]
 
 #store the best subset in a csv file 
-chemin = f"./subset_data_{nb_directions}_{N_features}.csv"
+chemin = f"./subset_data_4_shells.csv"
 
 with open(chemin, mode='w') as mon_fichier:
     mon_fichier_ecrire = csv.writer(mon_fichier, delimiter=',',
