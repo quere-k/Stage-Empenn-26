@@ -491,7 +491,7 @@ best_subset,best_nb=permutation(distance_matrix, nb_G, 6) #6 repetitions
 best_G=G[best_subset]
 
 #best subset in a csv file
-chemin = f"./subset_permut_{nb_directions}_{nb_G}.csv"
+chemin = f"./subset_permut_4_shells.csv"
 
 with open(chemin, mode='w') as mon_fichier:
     mon_fichier_ecrire = csv.writer(mon_fichier, delimiter=',',
