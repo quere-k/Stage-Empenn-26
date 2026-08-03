@@ -18,8 +18,9 @@ The aim of this internship is to improve acquisition schemes in diffusion MRI (d
     - parameter estimation
 - NODDI model :
     - concrete autoencoders :
-        - data-driven
-        - parameter
+        - data-driven 4 and 2 shells
+        - parameter 4 and 2 shells
+        - equation 4 and 2 shells
     - dictionary :
         - dataset division 
         - subset optimization 4 and 2 shells
