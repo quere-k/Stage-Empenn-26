@@ -14,21 +14,21 @@ with open("./subset.csv", newline="") as mon_fichier:
     mon_fichier_reader = csv.reader(mon_fichier, delimiter=",")
     donnees = [[int(x) for x in row] for row in mon_fichier_reader]
 
-#estimation on 80 D values
-nb_b=200
-nb_D=80 
-SNR=30
+
+nb_b=200 #number of b-values (cf N_input in CAE)
+nb_D=80 #estimation on 80 D values
+SNR=30 #signal noise ratio
 
 #Generation of the b-subset
-b_min, b_max = 10.0, 2000.0 #s/mm^2
-b = np.linspace(b_min,b_max,nb_b)
+b_min, b_max = 10.0, 2000.0 # b-value (s/mm^2)
+b = np.linspace(b_min,b_max,nb_b) #evenly spaced
 subset=np.array(donnees)
 subset = np.sort(np.unique(subset))
 nb_subset=len(subset)
 b_subset=b[subset]
 
 #Generation of the diffusion coefficient
-D_min, D_max = 0.1e-3, 3.0e-3
+D_min, D_max = 0.1e-3, 3.0e-3 #min and max values of the diffusion coefficient
 D = np.linspace(D_min,D_max,nb_D) #evenly spaced
 
 #Signal generation using the subset

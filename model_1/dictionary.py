@@ -8,10 +8,10 @@ Based on the diffusion equation
 """
 
 #Generation of the parameters 
-b_min, b_max = 10.0, 2000.0 #s/mm^2
+b_min, b_max = 10.0, 2000.0 #b-value (s/mm^2)
 b = np.linspace(b_min,b_max,200) #evenly spaced
 
-D_min, D_max = 0.1e-3, 3.0e-3
+D_min, D_max = 0.1e-3, 3.0e-3#min and max values of the diffusion coefficient
 D=np.array([D_min, D_max])
 
 # Distribution of D using recursion

@@ -27,23 +27,23 @@ class Signals(Dataset):
         return x,y
 
 #Hyperparameters initialization
-N_train=12000
-N_test=3000
-N_input=200
-N_features=20
-N_hidden_layer=2
+N_train=12000 #Number of train experiments (train volume)
+N_test=3000 #Number of test experiments (test volume)
+N_input=200 #Number of b-values per experiment
+N_features=20 #Number of selected b-values
+N_hidden_layer=2 #Number of hidden layers in the decoder
 
-SNR=30
+SNR=30 #Signal noise ratio
 
 #Generation of the datasets
 #Range of parameters
-b_min, b_max = 10.0, 2000.0 # s/mm^2
+b_min, b_max = 10.0, 2000.0 # b-value (s/mm^2)
 b=torch.linspace(b_min,b_max,N_input)#evenly spaced
 
-S0_min, S0_max = 0.5, 5.0
+S0_min, S0_max = 0.5, 5.0 #min and max values for the signal without diffusion weighting
 S= S0_min + (S0_max - S0_min) * torch.rand(N_train,1)#randomly generated
 
-D_min, D_max  = 0.1e-3, 3.0e-3
+D_min, D_max  = 0.1e-3, 3.0e-3 #min and max values for the diffusion coefficient
 D=D_min + (D_max - D_min) * torch.rand(N_train,1)#randomly generated
 
 #Signal matrix N_train*N_input
@@ -237,14 +237,14 @@ model=CAE().to(device)
 #Hyperparameters for the training + loss calculation
 learning_rate = 1e-3
 batch_size = 64
-epochs = 50
+epochs = 50 #Total number of epochs
 
-temp_base=10
-temp_min=0.1
-threshold=1
-strength=0.1
+temp_base=10 #Initial temperature
+temp_min=0.1 #Minimal temperature
+threshold=1 #threshold ofr the regularization
+strength=0.1 #impact of the regularization on the loss
 
-loss_function = nn.MSELoss()
+loss_function = nn.MSELoss() #mean squared error 
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 #Training loop

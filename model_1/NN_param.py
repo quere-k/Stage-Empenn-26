@@ -26,21 +26,21 @@ class Signals(Dataset):
         return x,y
 
 #Hyperparameters initialization
-N_train=1000
-N_test=192
-N_input=500
+N_train=1000 #Number of train experiments (train volume)
+N_test=192 #Number of test experiments (test volume)
+N_input=500 #Number of b-values per experiment
 
-SNR=30
+SNR=30 #Signal noise ratio
 
 #Generation of the datasets
 #Range of parameters
-b_min, b_max = 10.0, 2000.0 # s/mm^2
+b_min, b_max = 10.0, 2000.0 # b-value (s/mm^2)
 b=torch.linspace(b_min,b_max,N_input) #evenly spaced
 
-S0_min, S0_max = 0.5, 5.0
+S0_min, S0_max = 0.5, 5.0 #min and max values for the signal without diffusion weighting
 S= S0_min + (S0_max - S0_min) * torch.rand(N_train,1) #randomly generated
 
-D_min, D_max  = 0.1e-3, 3.0e-3
+D_min, D_max  = 0.1e-3, 3.0e-3 #min and max values for the diffusion coefficient
 D=D_min + (D_max - D_min) * torch.rand(N_train,1) #randomly generated
 
 #Signal matrix N_train*N_input
@@ -176,7 +176,7 @@ model=DAE()
 #Hyperparameters for the training
 learning_rate = 1e-3
 batch_size = 64
-epochs = 20
+epochs = 20 #number of epochs
 
 #Training loop
 def train_loop(epoch, model, train_loader, optimizer, cuda=True):
@@ -194,7 +194,7 @@ def train_loop(epoch, model, train_loader, optimizer, cuda=True):
     sum_loss/=num_batches
     print(f"Epoch {epoch}, Average loss: {sum_loss:.6f}")
 
-loss_function = nn.MSELoss()
+loss_function = nn.MSELoss() #mean squared error
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 #Testing loop
