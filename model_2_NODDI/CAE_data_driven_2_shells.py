@@ -12,13 +12,13 @@ import matplotlib.pyplot as plt
 
 """
 Function for the training and the testing of a concrete autoencoder (selection layer + decoder) to predict dMRI signals
-Loss calculated between the ground truth signals and the etimated ones
+Loss calculated between the ground truth signals and the estimated ones
 Inputs = pairs of G values with different numbers of directions associated
 Only one pair selected
 Based on the NODDI model
 """
 
-_GAMMA = 2.675987e8
+_GAMMA = 2.675987e8 # proton gyromagnetic ratio value
 
 #Class to create datasets
 class Signals(Dataset):
@@ -35,21 +35,21 @@ class Signals(Dataset):
         return x,y
 
 #Hyperparameters initialization
-N_train=3072
-N_test=960
-N_input=10
-N_features=1
-N_hidden_layer=2
+N_train=3072 #Number of train experiments (train volume)
+N_test=960 #Number of test experiments (test volume)
+N_input=10 #Number of gradient strengths (b-values) per experiment
+N_features=1 #Number of selected values
+N_hidden_layer=2 #Number of hidden layers in the decoder
 
 #shell directions
 dir_shell_1=30
 dir_shell_2=60
 
-SNR=30
+SNR=30 #Signal noise ratio
 
 #Generation of the datasets
 #Range of parameters
-G_min, G_max= 30e-3, 65e-3  #T/m
+G_min, G_max= 30e-3, 65e-3  #min and max values of gradient strength (T/m)
 G=np.linspace(G_min, G_max, N_input) #evenly spaced
 
 directions_shell_1=jones(dir_shell_1) #distribution of 30 directions 
@@ -58,9 +58,9 @@ G_dir_1=G*np.ones((dir_shell_1,1)) #T/m
 directions_shell_2=jones(dir_shell_2) #distribution of 60 directions 
 G_dir_2=G*np.ones((dir_shell_2,1)) #T/m
 
-vol_iso = np.random.rand(1, N_train).reshape(N_train, 1) #randomly generated
-vol_ic = np.random.rand(1, N_train).reshape(N_train, 1) #randomly generated
-od_min, od_max=0.001, 0.99
+vol_iso = np.random.rand(1, N_train).reshape(N_train, 1) #volume fraction CSF - randomly generated
+vol_ic = np.random.rand(1, N_train).reshape(N_train, 1) #volume fraction intra - randomly generated
+od_min, od_max=0.001, 0.99 # min and max values of orientation dispersion
 od = od_min + (od_max-od_min)*np.random.rand(1,N_train).reshape(N_train,1) #randomly generated
 
 #Adaptation from AMICO classes - NODDI signals
@@ -412,14 +412,14 @@ class NODDIIsotropic: #Compute the signal in the CSF
         return np.exp(-difftime*modQ_Sq*d)
 
 #Acquisition parameters
-d_par=1.7e-3
-d_iso=3.0e-3
-delta=37.8e-3
-delta_dir_1=delta*np.ones((dir_shell_1,1)) #s
-delta_dir_2=delta*np.ones((dir_shell_2,1)) #s
-smalldel=17.5e-3
-smalldel_dir_1=smalldel*np.ones((dir_shell_1,1)) #s
-smalldel_dir_2=smalldel*np.ones((dir_shell_2,1)) #s
+d_par=1.7e-3 #parallel diffusion coefficient 
+d_iso=3.0e-3 #diffusion coefficient CSF
+delta=37.8e-3 #s
+delta_dir_1=delta*np.ones((dir_shell_1,1)) 
+delta_dir_2=delta*np.ones((dir_shell_2,1)) 
+smalldel=17.5e-3 #s
+smalldel_dir_1=smalldel*np.ones((dir_shell_1,1)) 
+smalldel_dir_2=smalldel*np.ones((dir_shell_2,1)) 
 
 def noddi_signal(params, ic_model, ec_model, iso_model): #Compute the total signal
     vol_iso, vol_ic, od = params
@@ -617,14 +617,14 @@ model=CAE().to(device)
 #Hyperparameters for the training + loss calculation
 learning_rate = 1e-3
 batch_size = 64
-epochs = 50
+epochs = 50 #Number of epochs
 
-temp_base=10
-temp_min=0.1
-threshold=1 
-strength=0.05
+temp_base=10 #initial temperature
+temp_min=0.1 #minimal temperature
+threshold=1 #threshold for the regularization
+strength=0.05 #impact of the regularization on the loss
 
-loss_function = nn.MSELoss()
+loss_function = nn.MSELoss() #mean squared error
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 #Training loop

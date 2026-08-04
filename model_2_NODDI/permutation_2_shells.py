@@ -19,16 +19,16 @@ with open("./param_2.csv", newline='') as f:
     vf_ic  = [ast.literal_eval(x) for x in next(reader)]
     od  = [ast.literal_eval(x) for x in next(reader)]
 
-_GAMMA = 2.675987e8
+_GAMMA = 2.675987e8 # proton gyromagnetic ratio value
 
 #shell directions
 dir_shell_1=30
 dir_shell_2=60
 
-SNR=30
+SNR=30 #signal noise ratio
 
 #G values generation
-G_min, G_max= 30e-3, 65e-3  #T/m
+G_min, G_max= 30e-3, 65e-3  #min and max values of gradient strength (T/m)
 G=np.linspace(G_min, G_max, 10) #evenly spaced
 
 #direction distribution 1
@@ -392,14 +392,14 @@ class NODDIIsotropic: #Compute the signal in the CSF
         return np.exp(-difftime*modQ_Sq*d)
 
 #Acquisition parameters
-d_par=1.7e-3
-d_iso=3.0e-3
-delta=37.8e-3
-delta_dir_1=delta*np.ones((dir_shell_1,1)) #s
-delta_dir_2=delta*np.ones((dir_shell_2,1)) #s
-smalldel=17.5e-3
-smalldel_dir_1=smalldel*np.ones((dir_shell_1,1)) #s
-smalldel_dir_2=smalldel*np.ones((dir_shell_2,1)) #s
+d_par=1.7e-3 #parallel diffusion coefficient
+d_iso=3.0e-3 #diffusion coefficient CSF
+delta=37.8e-3 #s
+delta_dir_1=delta*np.ones((dir_shell_1,1)) 
+delta_dir_2=delta*np.ones((dir_shell_2,1)) 
+smalldel=17.5e-3 #s
+smalldel_dir_1=smalldel*np.ones((dir_shell_1,1)) 
+smalldel_dir_2=smalldel*np.ones((dir_shell_2,1)) 
 
 def noddi_signal(params, ic_model, ec_model, iso_model): #compute the total signal
     vol_iso, vol_ic, od = params

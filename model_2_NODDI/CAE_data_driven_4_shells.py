@@ -18,7 +18,7 @@ Inputs = G values with the same number of directions
 Based on the NODDI model
 """
 
-_GAMMA = 2.675987e8
+_GAMMA = 2.675987e8 # proton gyromagnetic ratio value
 
 #Class to create datasets
 class Signals(Dataset):
@@ -35,31 +35,30 @@ class Signals(Dataset):
         return x,y
 
 #Hyperparameters initialization
-N_train=3000
-N_test=1000
-N_input=20
-N_features=4
-N_hidden_layer=2
+N_train=3000 #Number of train experiments (train volume)
+N_test=1000 #Number of test experiments (test volume)
+N_input=20 #Number of gradient strengths (b-values) per experiment
+N_features=4 #Number of selected values
+N_hidden_layer=2 #Number of hidden layers in the decoder
 
-SNR=30
+SNR=30 #Signal noise ratio
 
 #shell directions
-nb_directions=60
+nb_directions=30
 directions=jones(nb_directions)
 
 #Generation of the datasets
 #Range of parameters
-G_min, G_max= 30e-3, 65e-3  #T/m
+G_min, G_max= 30e-3, 65e-3  #min and max values of gradient strength (T/m)
 G=np.linspace(G_min, G_max, N_input) #evenly spaced
 G_dir=G*np.ones((nb_directions,1)) #T/m
 
-vol_iso = np.random.rand(1, N_train).reshape(N_train, 1) #randomly generated
-vol_ic = np.random.rand(1, N_train).reshape(N_train, 1) #randomly generated
-kappa_min, kappa_max = 1e-3, 600
-OD = np.random.rand(1,N_train).reshape(N_train,1) #randomly generated
-kappa = kappa_min + (kappa_max-kappa_min)*OD
+vol_iso = np.random.rand(1, N_train).reshape(N_train, 1) #volume fraction CSF - randomly generated
+vol_ic = np.random.rand(1, N_train).reshape(N_train, 1) #volume fraction intra - randomly generated
+kappa_min, kappa_max = 1e-3, 600 # min and max values of kappa
+kappa = kappa_min + (kappa_max-kappa_min)*np.random.rand(1,N_train).reshape(N_train,1) #randomly generated
 
-#AMICO classes - NODDI signals
+#Adaptation from AMICO classes - NODDI signals
 class NODDIIntraCellular: #Compute the signal in the intra-cellular compartment
     def __init__(self,grad_dirs, G, delta, smalldel):
         self.grad_dirs=grad_dirs
@@ -408,12 +407,12 @@ class NODDIIsotropic: #Compute the signal in the CSF
 def signal(G_dir, vol_iso, vol_ic, kappa, nb_directions): #compute the total signal
     size=len(G_dir[0])
     signals=np.zeros((size,nb_directions))
-    delta=37.8e-3
-    delta_dir=delta*np.ones((nb_directions,1)) #s
-    smalldel=17.5e-3
-    smalldel_dir=smalldel*np.ones((nb_directions,1)) #s
-    d_par=1.7e-3
-    d_iso=3.0e-3
+    delta=37.8e-3 #s
+    delta_dir=delta*np.ones((nb_directions,1))
+    smalldel=17.5e-3 #s
+    smalldel_dir=smalldel*np.ones((nb_directions,1))
+    d_par=1.7e-3 #parallel diffusion coefficient 
+    d_iso=3.0e-3 #diffusion coefficient CSF
     for i in range(size):
         G=G_dir[:,i]
         ic=NODDIIntraCellular(directions, G, delta_dir, smalldel_dir)
@@ -552,14 +551,14 @@ model=CAE().to(device)
 #Hyperparameters for the training + loss calculation
 learning_rate = 1e-3
 batch_size = 64
-epochs = 50
+epochs = 50 #Number of epochs
 
-temp_base=10
-temp_min=0.1
-threshold=0.05 #more regularization 
-strength=0.05
+temp_base=10 #initial temperature
+temp_min=0.1 #minimal temperature
+threshold=0.05 #threshold for the regularization
+strength=0.05 #impact of the regularization on the loss
 
-loss_function = nn.MSELoss()
+loss_function = nn.MSELoss() #mean squared error
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 #Training loop

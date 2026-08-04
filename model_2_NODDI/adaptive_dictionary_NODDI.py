@@ -10,14 +10,14 @@ Distribution with maximal separability for the signals
 NODDI signals with different directions
 """
 
-_GAMMA = 2.675987e8
+_GAMMA = 2.675987e8 # proton gyromagnetic ratio value
 
 #shell directions
 nb_directions=30
 directions=jones(nb_directions)
 
 #Range of G values
-G_min, G_max= 30e-3, 65e-3  #T/m
+G_min, G_max= 30e-3, 65e-3  #min and max values of gradient strength (T/m)
 G=np.linspace(G_min, G_max, 200) #evenly spaced
 G_dir=G*np.ones((nb_directions,1)) #T/m
 
@@ -41,7 +41,7 @@ def create_param_from_cube(cube):
     ic = 0.5 * (cube["ic_min"] + cube["ic_max"])
     return [od, iso, ic]
 
-# NODDI model - from AMICO
+#AMICO classes - NODDI signals
 class NODDIIntraCellular: #Compute the signal in the intra-cellular compartment
     def __init__(self,grad_dirs, G, delta, smalldel):
         self.grad_dirs=grad_dirs
@@ -390,12 +390,12 @@ class NODDIIsotropic: #Compute the signal in the CSF
 def signal(G_dir, vol_iso, vol_ic, od, nb_directions): #Compute the total signal
     size=len(G_dir[0])
     signals=np.zeros((size,nb_directions))
-    delta=37.8e-3
-    delta_dir=delta*np.ones((nb_directions,1)) #s
-    smalldel=17.5e-3
-    smalldel_dir=smalldel*np.ones((nb_directions,1)) #s
-    d_par=1.7e-3
-    d_iso=3.0e-3
+    delta=37.8e-3 #s
+    delta_dir=delta*np.ones((nb_directions,1))
+    smalldel=17.5e-3 #s
+    smalldel_dir=smalldel*np.ones((nb_directions,1))
+    d_par=1.7e-3 #parallel diffusion coefficient 
+    d_iso=3.0e-3 #diffusion coefficient CSF
     kappa=1/np.tan((np.pi*od)/2)
     for i in range(size):
         G=G_dir[:,i]

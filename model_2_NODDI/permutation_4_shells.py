@@ -19,7 +19,7 @@ with open("./param_2.csv", newline='') as f:
     vf_ic  = [ast.literal_eval(x) for x in next(reader)]
     od  = [ast.literal_eval(x) for x in next(reader)]
 
-_GAMMA = 2.675987e8
+_GAMMA = 2.675987e8 # proton gyromagnetic ratio value
 
 #shell directions
 nb_directions=30
@@ -30,7 +30,7 @@ vf_ic=np.array(vf_ic)
 od=np.array(od)
 
 #G values generation
-G_min, G_max= 30e-3, 65e-3  #T/m
+G_min, G_max= 30e-3, 65e-3  #min and max values of gradient strength (T/m)
 G=np.linspace(G_min, G_max, 20) #evenly spaced
 G_dir=G*np.ones((nb_directions,1)) #T/m
 kappa=1/np.tan((np.pi*od)/2)
@@ -382,12 +382,12 @@ class NODDIIsotropic: #Compute the signal in the CSF
         return np.exp(-difftime*modQ_Sq*d)
 
 #Acquisition parameters
-d_par=1.7e-3
-d_iso=3.0e-3
-delta=37.8e-3
-delta_dir=delta*np.ones((nb_directions,1)) #s
-smalldel=17.5e-3
-smalldel_dir=smalldel*np.ones((nb_directions,1)) #s
+d_par=1.7e-3 #parallel diffusion coefficient
+d_iso=3.0e-3 #diffusion coefficient CSF
+delta=37.8e-3 #s
+delta_dir=delta*np.ones((nb_directions,1)) 
+smalldel=17.5e-3 #s
+smalldel_dir=smalldel*np.ones((nb_directions,1)) 
 ic_model=[]
 ec_model=[]
 iso_model=[]

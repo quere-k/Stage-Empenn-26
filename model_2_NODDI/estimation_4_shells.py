@@ -14,7 +14,7 @@ Signals are only computed on the selected subset : 4 G values associated with 30
 Comparison using absolute errors and statistics
 """
 
-_GAMMA = 2.675987e8
+_GAMMA = 2.675987e8 # proton gyromagnetic ratio value
 
 #retrieve subset from each method
 with open("./subset_data_4_shells.csv", newline="") as mon_fichier:
@@ -395,12 +395,12 @@ class NODDIIsotropic: #Compute the signal in the CSF
         return np.exp(-difftime*modQ_Sq*d)
 
 #Acquisition parameters
-d_par=1.7e-3
-d_iso=3.0e-3
-delta=37.8e-3
-delta_dir=delta*np.ones((nb_directions,1)) #s
-smalldel=17.5e-3
-smalldel_dir=smalldel*np.ones((nb_directions,1)) #s
+d_par=1.7e-3 #parallel diffusion coefficient 
+d_iso=3.0e-3 #diffusion coefficient CSF
+delta=37.8e-3 #s
+delta_dir=delta*np.ones((nb_directions,1)) 
+smalldel=17.5e-3 #s
+smalldel_dir=smalldel*np.ones((nb_directions,1)) 
 ic_model=[]
 ec_model=[]
 iso_model=[]
