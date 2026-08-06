@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from qspace.sampling.sphere import jones
 import scipy.special
-from scipy.special import lpmv
+from scipy.special import lpmv #export SCIPY_ARRAY_API=1
 from math import pi, sqrt, tan, log
 import numpy as np
 import csv
